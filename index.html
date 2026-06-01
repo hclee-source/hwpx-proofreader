@@ -5268,6 +5268,22 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const RENDER_ZOOM = 2.0;
 
+// 한글·CJK = 2, ASCII = 1 단위 폭 추정 (혼합 텍스트 x좌표 보간 정확도 향상)
+function charWidthEst(ch) {
+  const cp = ch.codePointAt(0);
+  if ((cp >= 0xAC00 && cp <= 0xD7A3) || // 한글 음절
+      (cp >= 0x1100 && cp <= 0x11FF) ||  // 한글 자모
+      (cp >= 0x3000 && cp <= 0x9FFF) ||  // CJK
+      (cp >= 0xFF00 && cp <= 0xFFEF))    // 전각
+    return 2;
+  return 1;
+}
+function strWidthUpTo(str, end) {
+  let w = 0;
+  for (let i = 0; i < end; i++) w += charWidthEst(str[i]);
+  return w;
+}
+
 const pdfState = {
   file: null,
   pages: [],
@@ -5353,14 +5369,16 @@ async function pdfExtract(file) {
       }
       if (sep) { text += sep; cursor += sep.length; }
 
-      const basePos = cursor;
+      const basePos  = cursor;
+      const totalWEst = strWidthUpTo(str, str.length) || 1; // 전체 추정 폭(단위)
       let tokenStart = 0;
       for (let i = 0; i <= str.length; i++) {
         if (i === str.length || str[i] === ' ') {
           if (i > tokenStart) {
             const token = str.slice(tokenStart, i);
-            const sf = str.length > 0 ? tokenStart / str.length : 0;
-            const ef = str.length > 0 ? i / str.length : 1;
+            // 글자 수 비율 대신 폭 비율로 보간 → 한글/ASCII 혼합 시 정확도 향상
+            const sf = strWidthUpTo(str, tokenStart) / totalWEst;
+            const ef = strWidthUpTo(str, i)          / totalWEst;
             spans.push([basePos + tokenStart, basePos + i]);
             wordList.push({ i: wordList.length, text: token,
               x0: x0_pdf + sf * w_pdf, y0, x1: x0_pdf + ef * w_pdf, y1 });
