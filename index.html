@@ -5453,13 +5453,15 @@ function pdfRenderPage(pageIndex) {
     const scale = img.clientWidth / img.naturalWidth;
     const z = page.zoom * scale;
     for (const issue of pdfState.issues.filter(x => x.page === pageIndex && x._selected)) {
-      const color = CAT_OVERLAY_COLOR[issue.category] || CAT_OVERLAY_COLOR.custom;
+      const color   = CAT_OVERLAY_COLOR[issue.category] || CAT_OVERLAY_COLOR.custom;
+      const tooltip = issue.suggestion || issue.original;
       for (const wi of issue.word_indices) {
         const w = page.words[wi];
         if (!w) continue;
         const box = document.createElement('div');
+        box.title = tooltip;
         box.style.cssText =
-          'position:absolute;pointer-events:none;border-radius:2px;' +
+          'position:absolute;cursor:help;border-radius:2px;' +
           'left:' + (w.x0 * z) + 'px;top:' + (w.y0 * z) + 'px;' +
           'width:' + ((w.x1 - w.x0) * z) + 'px;height:' + ((w.y1 - w.y0) * z) + 'px;' +
           'background:' + color + ';outline:1.5px solid rgba(124,71,245,.35);';
@@ -5549,11 +5551,13 @@ async function pdfExportAnnotated() {
   btn.disabled = true;
   pdfSetProgress(20);
   try {
-    const { PDFDocument, rgb } = PDFLib;
+    const { PDFDocument, PDFName, PDFHexString, PDFNumber, PDFArray } = PDFLib;
     const arrayBuffer = await pdfState.file.arrayBuffer();
-    const pdfDoc  = await PDFDocument.load(arrayBuffer);
+    const pdfDoc   = await PDFDocument.load(arrayBuffer);
     const pdfPages = pdfDoc.getPages();
     pdfSetProgress(50);
+
+    const annotsKey = PDFName.of('Annots');
 
     for (const issue of selected) {
       const page     = pdfPages[issue.page];
@@ -5562,19 +5566,56 @@ async function pdfExportAnnotated() {
       const { height: pageH } = page.getSize();
       const [cr, cg, cb] = ANNOT_COLORS[issue.backendCat] || ANNOT_DEFAULT;
 
-      for (const wi of issue.word_indices) {
-        const w = pageData.words[wi];
-        if (!w) continue;
-        // w 좌표: top-left origin (points) → pdf-lib: bottom-left origin
-        page.drawRectangle({
-          x:      w.x0,
-          y:      pageH - w.y1,       // bottom of rect in pdf-lib coords
-          width:  Math.max(w.x1 - w.x0, 1),
-          height: Math.max(w.y1 - w.y0, 1),
-          color:  rgb(cr, cg, cb),
-          opacity: 0.30,
-          borderWidth: 0,
-        });
+      // 주석 내용: 수정 제안만 (없으면 원문)
+      const contents = issue.suggestion || issue.original;
+
+      // 단어 박스들 → QuadPoints + Rect 계산
+      const words = issue.word_indices.map(wi => pageData.words[wi]).filter(Boolean);
+      if (!words.length) continue;
+
+      const quadPts = [];
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      for (const w of words) {
+        // 저장 좌표: top-left origin → PDF 좌표: bottom-left origin
+        const x0      = w.x0;
+        const x1      = w.x1;
+        const yTop    = pageH - w.y0; // 텍스트 상단 (PDF: 큰 y)
+        const yBottom = pageH - w.y1; // 텍스트 하단 (PDF: 작은 y)
+
+        // QuadPoints 순서: upper-left, upper-right, lower-left, lower-right
+        quadPts.push(x0, yTop, x1, yTop, x0, yBottom, x1, yBottom);
+
+        if (x0      < minX) minX = x0;
+        if (yBottom < minY) minY = yBottom;
+        if (x1      > maxX) maxX = x1;
+        if (yTop    > maxY) maxY = yTop;
+      }
+
+      // Highlight Annotation 딕셔너리 생성
+      const annotDict = pdfDoc.context.obj({
+        Type:       PDFName.of('Annot'),
+        Subtype:    PDFName.of('Highlight'),
+        Rect:       pdfDoc.context.obj([minX, minY, maxX, maxY]),
+        QuadPoints: pdfDoc.context.obj(quadPts),
+        Contents:   PDFHexString.fromText(contents),
+        T:          PDFHexString.fromText('교정'),
+        C:          pdfDoc.context.obj([cr, cg, cb]),
+        F:          PDFNumber.of(4),
+      });
+      const annotRef = pdfDoc.context.register(annotDict);
+
+      // 페이지 Annots 배열에 추가
+      const existing = page.node.get(annotsKey);
+      if (!existing) {
+        page.node.set(annotsKey, pdfDoc.context.obj([annotRef]));
+      } else {
+        const arr = pdfDoc.context.lookup(existing);
+        if (arr && typeof arr.push === 'function') {
+          arr.push(annotRef);
+        } else {
+          page.node.set(annotsKey, pdfDoc.context.obj([annotRef]));
+        }
       }
     }
 
