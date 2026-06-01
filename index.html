@@ -5419,6 +5419,14 @@ function pdfDetectAll() {
     if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text));
     if (useParticle) raw = raw.concat(detectParticleSpacing(page.text));
 
+    // PDF 전용: 줄 바꿈(\n)을 가로지르는 이슈 제거
+    // PDF에서 줄 바꿈은 \n으로 저장되는데, 정규식의 \s가 이를 매칭해 오탐 발생
+    // → 매칭된 텍스트 구간 안에 \n이 있으면 줄 넘김 아티팩트로 간주하고 폐기
+    raw = raw.filter(issue => {
+      const span = page.text.slice(issue.position, issue.position + issue.original.length);
+      return !span.includes('\n');
+    });
+
     for (const issue of raw) {
       const start   = issue.position;
       const end     = issue.position + issue.original.length;
