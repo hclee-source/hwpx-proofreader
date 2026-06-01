@@ -5300,31 +5300,25 @@ function pdfSetProgress(pct) {
   bar.style.width = pct + '%';
 }
 
-// ── 1) 브라우저 PDF 추출 (PDF.js) ────────────────────────
+// ── 1) 브라우저 PDF 추출 (PDF.js) ─────────────────────────
+// 텍스트·좌표 추출만 전체 페이지에서 수행. 이미지는 지연 렌더링(on-demand).
 async function pdfExtract(file) {
   pdfSetProgress(10);
   const arrayBuffer = await file.arrayBuffer();
-  const pdfDoc = await pdfjsLib.getDocument({
+  const pdfJsDoc = await pdfjsLib.getDocument({
     data: arrayBuffer,
     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
     cMapPacked: true,
   }).promise;
-  const pages = [];
+  pdfState._pdfJsDoc = pdfJsDoc; // 지연 렌더링을 위해 보관
 
-  for (let pno = 0; pno < pdfDoc.numPages; pno++) {
-    const page  = await pdfDoc.getPage(pno + 1);
+  const pages = [];
+  for (let pno = 0; pno < pdfJsDoc.numPages; pno++) {
+    const page  = await pdfJsDoc.getPage(pno + 1);
     const vp1   = page.getViewport({ scale: 1.0 });
-    const vpZ   = page.getViewport({ scale: RENDER_ZOOM });
     const pageH = vp1.height;
 
-    // 렌더링
-    const canvas = document.createElement('canvas');
-    canvas.width  = Math.round(vpZ.width);
-    canvas.height = Math.round(vpZ.height);
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vpZ }).promise;
-    const imageDataUrl = canvas.toDataURL('image/png');
-
-    // 텍스트 추출
+    // 텍스트 추출 (이미지 렌더링 없음)
     const tc = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
     const wordList = [];
     const spans    = [];
@@ -5334,20 +5328,14 @@ async function pdfExtract(file) {
 
     for (const item of tc.items) {
       if (!('str' in item) || item.str === '') continue;
-      const str = item.str;
+      const str    = item.str;
       const x0_pdf = item.transform[4];
-      const y_pdf  = item.transform[5];          // 텍스트 베이스라인 (PDF 좌표: 아래=0)
+      const y_pdf  = item.transform[5];
       const w_pdf  = Math.abs(item.width  || 0);
-      const h_pdf  = Math.abs(item.height || 10); // 높이 없으면 10pt 기본
-      const x1_pdf = x0_pdf + w_pdf;
+      const h_pdf  = Math.abs(item.height || 10);
+      const y0 = pageH - (y_pdf + h_pdf);
+      const y1 = pageH - y_pdf;
 
-      // top-left 좌표로 변환 (y 방향 반전)
-      const x0 = x0_pdf;
-      const y0 = pageH - (y_pdf + h_pdf); // 텍스트 상단
-      const x1 = x1_pdf;
-      const y1 = pageH - y_pdf;           // 텍스트 하단
-
-      // 구분자 결정
       let sep = '';
       if (prevItem !== null) {
         const dy = Math.abs(item.transform[5] - prevItem.transform[5]);
@@ -5355,49 +5343,54 @@ async function pdfExtract(file) {
           sep = '\n';
         } else {
           const gap = x0_pdf - (prevItem.transform[4] + Math.abs(prevItem.width || 0));
-          const noTrailSpace = str[0] !== ' ' &&
-            prevItem.str[prevItem.str.length - 1] !== ' ';
-          if (noTrailSpace && gap > 1) sep = ' ';
+          if (str[0] !== ' ' && prevItem.str[prevItem.str.length - 1] !== ' ' && gap > 1)
+            sep = ' ';
         }
       }
-
       if (sep) { text += sep; cursor += sep.length; }
 
-      // item 내 공백으로 단어 단위 분리 → 단어별 span + x 좌표 (선형 보간)
       const basePos = cursor;
       let tokenStart = 0;
       for (let i = 0; i <= str.length; i++) {
         if (i === str.length || str[i] === ' ') {
           if (i > tokenStart) {
             const token = str.slice(tokenStart, i);
-            const sf    = str.length > 0 ? tokenStart / str.length : 0;
-            const ef    = str.length > 0 ? i           / str.length : 1;
+            const sf = str.length > 0 ? tokenStart / str.length : 0;
+            const ef = str.length > 0 ? i / str.length : 1;
             spans.push([basePos + tokenStart, basePos + i]);
-            wordList.push({
-              i:    wordList.length,
-              text: token,
-              x0:   x0_pdf + sf * w_pdf,
-              y0,
-              x1:   x0_pdf + ef * w_pdf,
-              y1,
-            });
+            wordList.push({ i: wordList.length, text: token,
+              x0: x0_pdf + sf * w_pdf, y0, x1: x0_pdf + ef * w_pdf, y1 });
           }
           tokenStart = i + 1;
         }
       }
-
-      text   += str;
-      cursor += str.length;
-      prevItem = item;
+      text += str; cursor += str.length; prevItem = item;
     }
 
-    pages.push({ index: pno, zoom: RENDER_ZOOM, words: wordList, word_spans: spans, text, image: imageDataUrl });
-    pdfSetProgress(10 + Math.round((pno + 1) / pdfDoc.numPages * 45));
+    // image: null → pdfRenderPage에서 요청 시 렌더링·캐시
+    pages.push({ index: pno, zoom: RENDER_ZOOM,
+      _vp1w: vp1.width, _vp1h: vp1.height,
+      words: wordList, word_spans: spans, text, image: null });
+    pdfSetProgress(10 + Math.round((pno + 1) / pdfJsDoc.numPages * 45));
   }
 
   pdfState.pages = pages;
   pdfSetProgress(55);
   return { page_count: pages.length, pages };
+}
+
+// ── 페이지 이미지 지연 렌더링 ─────────────────────────────
+async function pdfEnsureImage(pageData) {
+  if (pageData.image) return; // 이미 캐시됨
+  const pdfJsDoc = pdfState._pdfJsDoc;
+  if (!pdfJsDoc) return;
+  const page  = await pdfJsDoc.getPage(pageData.index + 1);
+  const vpZ   = page.getViewport({ scale: RENDER_ZOOM });
+  const canvas = document.createElement('canvas');
+  canvas.width  = Math.round(vpZ.width);
+  canvas.height = Math.round(vpZ.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vpZ }).promise;
+  pageData.image = canvas.toDataURL('image/png'); // 캐시
 }
 
 // ── 2) 검출 + 단어 인덱스 매핑 (A·C 반영) ────────────────
@@ -5494,10 +5487,14 @@ const CAT_OVERLAY_COLOR = {
   custom:      'rgba(160,120,230,.28)',
 };
 
-function pdfRenderPage(pageIndex) {
+async function pdfRenderPage(pageIndex) {
   const page = pdfState.pages[pageIndex];
   if (!page) return;
   const container = document.getElementById('pdfPageContainer');
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--ink-faint);font-size:13px;">렌더링 중…</div>';
+
+  await pdfEnsureImage(page);
+
   container.innerHTML = '';
   container.style.position = 'relative';
 
@@ -5579,13 +5576,13 @@ function pdfRenderIssueList() {
 
   // 이벤트 위임
   container.querySelectorAll('.pdf-issue-chk').forEach(chk => {
-    chk.addEventListener('change', e => {
+    chk.addEventListener('change', async e => {
       const id = parseInt(e.target.dataset.id);
       const iss = pdfState.issues.find(x => x._id === id);
       if (!iss) return;
       iss._selected = e.target.checked;
       pdfRenderIssueList();
-      pdfRenderPage(pdfState.currentPage);
+      await pdfRenderPage(pdfState.currentPage);
     });
   });
 }
@@ -5741,7 +5738,7 @@ document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
     pdfSetProgress(85);
     document.getElementById('pdfResultsWrap').classList.remove('hidden');
     pdfState.currentPage = 0;
-    pdfRenderPage(0);
+    await pdfRenderPage(0);
     pdfRenderIssueList();
     showToast('검출 완료 — ' + issues.length + '개 항목', 3000);
     pdfSetProgress(100);
@@ -5750,28 +5747,28 @@ document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
   } finally { btn.disabled = false; }
 });
 
-document.getElementById('pdfPrevBtn').addEventListener('click', () => {
+document.getElementById('pdfPrevBtn').addEventListener('click', async () => {
   if (pdfState.currentPage > 0) {
     pdfState.currentPage--;
-    pdfRenderPage(pdfState.currentPage);
+    await pdfRenderPage(pdfState.currentPage);
     pdfRenderIssueList();
   }
 });
-document.getElementById('pdfNextBtn').addEventListener('click', () => {
+document.getElementById('pdfNextBtn').addEventListener('click', async () => {
   if (pdfState.currentPage < pdfState.pages.length - 1) {
     pdfState.currentPage++;
-    pdfRenderPage(pdfState.currentPage);
+    await pdfRenderPage(pdfState.currentPage);
     pdfRenderIssueList();
   }
 });
 
-document.getElementById('pdfSelectAllBtn').addEventListener('click', () => {
+document.getElementById('pdfSelectAllBtn').addEventListener('click', async () => {
   pdfState.issues.forEach(i => i._selected = true);
-  pdfRenderIssueList(); pdfRenderPage(pdfState.currentPage);
+  pdfRenderIssueList(); await pdfRenderPage(pdfState.currentPage);
 });
-document.getElementById('pdfDeselectAllBtn').addEventListener('click', () => {
+document.getElementById('pdfDeselectAllBtn').addEventListener('click', async () => {
   pdfState.issues.forEach(i => i._selected = false);
-  pdfRenderIssueList(); pdfRenderPage(pdfState.currentPage);
+  pdfRenderIssueList(); await pdfRenderPage(pdfState.currentPage);
 });
 
 document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
