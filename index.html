@@ -5338,6 +5338,7 @@ async function pdfExtract(file) {
     const tc = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
     const wordList = [];
     const spans    = [];
+    const charPos  = []; // charPos[textOffset] = {x0,x1,y0,y1} | null(공백·줄바꿈)
     let text   = '';
     let cursor = 0;
     let prevItem = null;
@@ -5367,21 +5368,37 @@ async function pdfExtract(file) {
             sep = ' ';
         }
       }
-      if (sep) { text += sep; cursor += sep.length; }
+      if (sep) {
+        for (let si = 0; si < sep.length; si++) charPos.push(null);
+        text += sep; cursor += sep.length;
+      }
 
-      const basePos  = cursor;
-      const totalWEst = strWidthUpTo(str, str.length) || 1; // 전체 추정 폭(단위)
+      const basePos = cursor;
+      // 누적 폭 배열 선계산 — charPos·wordList 양쪽에서 재사용
+      const widthAt = new Float32Array(str.length + 1);
+      for (let ci = 0; ci <= str.length; ci++)
+        widthAt[ci] = ci > 0 ? widthAt[ci - 1] + charWidthEst(str[ci - 1]) : 0;
+      const totalWEst = widthAt[str.length] || 1;
+
+      // ① 글자 단위 위치 기록 → 하이라이트 글자 수준 정확도
+      for (let ci = 0; ci < str.length; ci++) {
+        charPos.push({
+          x0: x0_pdf + (widthAt[ci]     / totalWEst) * w_pdf,
+          x1: x0_pdf + (widthAt[ci + 1] / totalWEst) * w_pdf,
+          y0, y1,
+        });
+      }
+
+      // ② 단어 토큰 (mapCharRangeToWords·주석 내보내기용으로 유지)
       let tokenStart = 0;
       for (let i = 0; i <= str.length; i++) {
         if (i === str.length || str[i] === ' ') {
           if (i > tokenStart) {
             const token = str.slice(tokenStart, i);
-            // 글자 수 비율 대신 폭 비율로 보간 → 한글/ASCII 혼합 시 정확도 향상
-            const sf = strWidthUpTo(str, tokenStart) / totalWEst;
-            const ef = strWidthUpTo(str, i)          / totalWEst;
             spans.push([basePos + tokenStart, basePos + i]);
             wordList.push({ i: wordList.length, text: token,
-              x0: x0_pdf + sf * w_pdf, y0, x1: x0_pdf + ef * w_pdf, y1 });
+              x0: x0_pdf + (widthAt[tokenStart] / totalWEst) * w_pdf, y0,
+              x1: x0_pdf + (widthAt[i]          / totalWEst) * w_pdf, y1 });
           }
           tokenStart = i + 1;
         }
@@ -5392,7 +5409,7 @@ async function pdfExtract(file) {
     // image: null → pdfRenderPage에서 요청 시 렌더링·캐시
     pages.push({ index: pno, zoom: RENDER_ZOOM,
       _vp1w: vp1.width, _vp1h: vp1.height,
-      words: wordList, word_spans: spans, text, image: null });
+      words: wordList, word_spans: spans, charPos, text, image: null });
     pdfSetProgress(10 + Math.round((pno + 1) / pdfJsDoc.numPages * 45));
   }
 
@@ -5491,6 +5508,8 @@ function pdfDetectAll() {
         _id:          all.length,
         page:         page.index,
         word_indices: wordIdx,
+        _pos:         start,          // charPos 기반 렌더링용
+        _len:         issue.original.length,
         category:     issue.category || 'custom',
         categoryName: toCatName(issue),
         backendCat:   toCatName(issue),
@@ -5539,17 +5558,51 @@ async function pdfRenderPage(pageIndex) {
     for (const issue of pdfState.issues.filter(x => x.page === pageIndex && x._selected)) {
       const color   = CAT_OVERLAY_COLOR[issue.category] || CAT_OVERLAY_COLOR.custom;
       const tooltip = issue.suggestion || issue.original;
-      for (const wi of issue.word_indices) {
-        const w = page.words[wi];
-        if (!w) continue;
-        const box = document.createElement('div');
-        box.title = tooltip;
-        box.style.cssText =
-          'position:absolute;cursor:help;border-radius:2px;' +
-          'left:' + (w.x0 * z) + 'px;top:' + (w.y0 * z) + 'px;' +
-          'width:' + ((w.x1 - w.x0) * z) + 'px;height:' + ((w.y1 - w.y0) * z) + 'px;' +
-          'background:' + color + ';outline:1.5px solid rgba(124,71,245,.35);';
-        container.appendChild(box);
+
+      if (issue._pos != null && page.charPos) {
+        // ── charPos 기반: 글자 단위 좌표로 하이라이트 ──────────
+        const start = issue._pos;
+        const end   = start + (issue._len || 0);
+        // y 라인별로 묶어서 박스 생성 (줄 걸침 이슈 대응)
+        const lineMap = new Map();
+        for (let k = start; k < end && k < page.charPos.length; k++) {
+          const cp = page.charPos[k];
+          if (!cp) continue;
+          const yKey = Math.round(cp.y0 * 4); // 0.25pt 단위로 같은 줄 판정
+          if (!lineMap.has(yKey)) {
+            lineMap.set(yKey, { x0: cp.x0, x1: cp.x1, y0: cp.y0, y1: cp.y1 });
+          } else {
+            const r = lineMap.get(yKey);
+            if (cp.x0 < r.x0) r.x0 = cp.x0;
+            if (cp.x1 > r.x1) r.x1 = cp.x1;
+            if (cp.y0 < r.y0) r.y0 = cp.y0;
+            if (cp.y1 > r.y1) r.y1 = cp.y1;
+          }
+        }
+        for (const r of lineMap.values()) {
+          const box = document.createElement('div');
+          box.title = tooltip;
+          box.style.cssText =
+            'position:absolute;cursor:help;border-radius:2px;' +
+            'left:'   + (r.x0 * z) + 'px;top:'    + (r.y0 * z) + 'px;' +
+            'width:'  + ((r.x1 - r.x0) * z) + 'px;height:' + ((r.y1 - r.y0) * z) + 'px;' +
+            'background:' + color + ';outline:1.5px solid rgba(124,71,245,.35);';
+          container.appendChild(box);
+        }
+      } else {
+        // fallback: word_indices 기반 (charPos 없는 구버전 데이터)
+        for (const wi of (issue.word_indices || [])) {
+          const w = page.words[wi];
+          if (!w) continue;
+          const box = document.createElement('div');
+          box.title = tooltip;
+          box.style.cssText =
+            'position:absolute;cursor:help;border-radius:2px;' +
+            'left:' + (w.x0 * z) + 'px;top:' + (w.y0 * z) + 'px;' +
+            'width:' + ((w.x1 - w.x0) * z) + 'px;height:' + ((w.y1 - w.y0) * z) + 'px;' +
+            'background:' + color + ';outline:1.5px solid rgba(124,71,245,.35);';
+          container.appendChild(box);
+        }
       }
     }
   };
