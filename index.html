@@ -5302,7 +5302,11 @@ function pdfSetProgress(pct) {
 async function pdfExtract(file) {
   pdfSetProgress(10);
   const arrayBuffer = await file.arrayBuffer();
-  const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pdfDoc = await pdfjsLib.getDocument({
+    data: arrayBuffer,
+    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapPacked: true,
+  }).promise;
   const pages = [];
 
   for (let pno = 0; pno < pdfDoc.numPages; pno++) {
@@ -5414,7 +5418,7 @@ function pdfDetectAll() {
         suggestion:   issue.suggestion || '',
         note:         issue.description || '',
         confidence:   Math.round(conf * 100),
-        kind:         pickAnnotKind(issue.category),
+        kind:         'highlight',
         ruleId:       issue.ruleId,
         _selected:    true,
       });
