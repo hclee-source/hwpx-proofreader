@@ -1294,11 +1294,123 @@
   .guide-faq-q { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 5px; }
   .guide-faq-q::before { content: 'Q. '; color: var(--accent); }
   .guide-faq-a { font-size: 13px; color: var(--ink-muted); line-height: 1.65; padding-left: 2px; }
+
+  /* ── 모드 네비게이션 바 ── */
+  .mode-nav {
+    height: 46px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--sidebar-border);
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    gap: 6px;
+    position: sticky;
+    top: 0;
+    z-index: 300;
+  }
+  .mode-nav-logo {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 700; color: var(--sidebar-text-active);
+    margin-right: 12px;
+  }
+  .mode-nav-logo-icon {
+    width: 26px; height: 26px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    border-radius: 7px; display: flex; align-items: center;
+    justify-content: center; font-size: 13px;
+  }
+  .mode-nav-tab {
+    height: 30px; padding: 0 14px; border-radius: 20px;
+    border: 1.5px solid transparent; background: transparent;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    color: var(--ink-muted); font-family: var(--font);
+    transition: all var(--transition);
+  }
+  .mode-nav-tab:hover { background: var(--surface-alt); color: var(--ink); }
+  .mode-nav-tab.active {
+    background: var(--accent-soft); color: var(--accent);
+    border-color: transparent;
+  }
+
+  /* ── 모드 전환 시 사이드바 오프셋 ── */
+  .sidebar { top: 46px; height: calc(100vh - 46px); }
+
+  /* ── PDF 모드 ── */
+  .server-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--ink-faint);
+  }
+  .server-dot.online  { background: var(--success); }
+  .server-dot.offline { background: #e05; }
+  .server-dot.checking { background: var(--warning); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .pdf-server-section {
+    padding: 12px 0 4px;
+    border-bottom: 1px solid var(--sidebar-line);
+    margin-bottom: 8px;
+  }
+  .pdf-server-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 16px; font-size: 12px; color: var(--ink-soft);
+  }
+
+  .pdf-split {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+    align-items: start;
+    margin-top: 16px;
+  }
+  @media (max-width: 1100px) { .pdf-split { grid-template-columns: 1fr; } }
+
+  .pdf-viewer-wrap {
+    background: var(--surface-alt);
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    overflow: hidden;
+  }
+
+  .pdf-issue-list {
+    max-height: 70vh;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .pdf-issue-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+    display: flex; gap: 10px; align-items: flex-start;
+    transition: border-color var(--transition), opacity var(--transition);
+    box-shadow: var(--shadow-xs);
+  }
+  .pdf-issue-card.deselected { opacity: .45; }
+  .pdf-issue-card:hover { border-color: var(--accent); }
+  .pdf-issue-body { flex: 1; min-width: 0; }
+  .pdf-issue-header { display: flex; align-items: center; margin-bottom: 4px; }
+  .pdf-issue-diff { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+  .pdf-page-nav {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
 </style>
 </head>
 <body>
 
-<div class="layout">
+<!-- 모드 네비게이션 바 -->
+<nav class="mode-nav">
+  <div class="mode-nav-logo">
+    <div class="mode-nav-logo-icon">✏</div>
+    <span>HWPX · PDF 교정</span>
+  </div>
+  <button class="mode-nav-tab active" data-mode="hwpx">✏️ HWPX 교정</button>
+  <button class="mode-nav-tab" data-mode="pdf">📋 PDF 교정</button>
+</nav>
+
+<div class="layout" id="hwpxMode">
   <!-- 사이드바 -->
   <div class="sidebar">
     <div class="sidebar-logo">
@@ -1853,7 +1965,132 @@
     </div>
 
   </div><!-- /main -->
-</div><!-- /layout -->
+</div><!-- /hwpxMode layout -->
+
+<!-- PDF 모드 -->
+<div class="layout" id="pdfMode" style="display:none;">
+
+  <!-- PDF 사이드바 -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-title">
+        <div class="sidebar-logo-icon">📋</div>
+        <div>
+          <div>PDF 교정</div>
+          <div class="sidebar-logo-sub">PyMuPDF 하이브리드</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pdf-server-section">
+      <div class="nav-label" style="padding:10px 16px 4px;">백엔드 서버</div>
+      <div class="pdf-server-bar">
+        <span class="server-dot offline" id="pdfServerDot"></span>
+        <span id="pdfServerText">연결 안 됨</span>
+      </div>
+      <div style="padding:0 16px 8px;">
+        <input type="text" id="pdfApiBase" value="http://localhost:8000"
+               style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-family:var(--font);color:var(--ink);">
+        <button class="btn btn-secondary btn-sm" id="pdfServerRetry"
+                style="margin-top:6px;width:100%;">연결 확인</button>
+      </div>
+    </div>
+
+    <div style="padding:8px 16px 12px;border-bottom:1px solid var(--sidebar-line);">
+      <div class="nav-label" style="margin-bottom:8px;">검출 옵션</div>
+      <label class="jamo-toggle-wrap" style="margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseJamo" checked style="margin-top:2px;">
+        <span style="font-size:12px;color:var(--ink-soft);">자모 분리 자동 검출</span>
+      </label>
+      <label class="jamo-toggle-wrap" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseParticle" style="margin-top:2px;">
+        <div>
+          <span style="font-size:12px;color:var(--ink-soft);">조사 앞 공백 검출</span>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">PDF 오탐 주의 — 신뢰도 ≤50% 자동 적용</div>
+        </div>
+      </label>
+    </div>
+
+    <div class="sidebar-info" style="margin-top:auto;">
+      <strong>서버 실행 방법</strong><br>
+      <code style="font-size:10px;word-break:break-all;">uvicorn pdf_proofreader_service:app --port 8000</code>
+    </div>
+  </div><!-- /PDF sidebar -->
+
+  <!-- PDF 메인 -->
+  <div class="main">
+
+    <!-- 파일 바 -->
+    <div class="shared-file-bar" id="pdfSharedFileBar">
+      <div class="drop-zone" id="pdfDropZone">
+        <span class="dz-icon">📋</span>
+        <div class="dz-body">
+          <div class="dz-main">PDF 파일을 끌어다 놓거나 클릭하세요</div>
+          <div class="dz-sub">텍스트 레이어가 있는 PDF 지원 (스캔본 미지원)</div>
+        </div>
+        <span class="dz-cta">파일 선택 →</span>
+        <input type="file" id="pdfFileInput" accept=".pdf" style="display:none">
+      </div>
+      <div class="file-info" id="pdfFileInfo">
+        <div class="fi-badge">✓</div>
+        <div class="fi-body">
+          <div class="fi-name" id="pdfFileName"></div>
+          <div class="fi-meta" id="pdfFileMeta"></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="pdfChangeFileBtn">파일 교체</button>
+      </div>
+    </div>
+
+    <div class="page-header">
+      <div class="page-title">PDF 교정</div>
+      <div class="page-subtitle">교정 규칙을 PDF에 적용하고 하이라이트 주석으로 내보냅니다</div>
+    </div>
+
+    <!-- 진행 바 -->
+    <div class="progress-bar-wrap hidden" id="pdfProgressWrap">
+      <div class="progress-bar" id="pdfProgressBar" style="width:0%"></div>
+    </div>
+
+    <!-- 검출 버튼 패널 -->
+    <div class="panel hidden" id="pdfDetectPanel">
+      <div class="actions" style="margin:0;">
+        <button class="btn btn-primary" id="pdfDetectBtn" disabled>⚡ 오류 검출 시작</button>
+      </div>
+    </div>
+
+    <!-- 결과 패널 -->
+    <div class="hidden" id="pdfResultsWrap">
+
+      <!-- 액션 바 -->
+      <div class="pdf-page-nav">
+        <span class="accordion-count-badge" id="pdfIssueCountBadge">0개</span>
+        <button class="btn btn-secondary btn-sm" id="pdfSelectAllBtn">전체 선택</button>
+        <button class="btn btn-secondary btn-sm" id="pdfDeselectAllBtn">전체 해제</button>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+          <button class="btn btn-secondary btn-sm" id="pdfPrevBtn" disabled>◀ 이전</button>
+          <span id="pdfPageInfo" style="font-size:13px;font-weight:600;min-width:56px;text-align:center;">1 / 1</span>
+          <button class="btn btn-secondary btn-sm" id="pdfNextBtn" disabled>다음 ▶</button>
+        </div>
+      </div>
+
+      <!-- 뷰어 + 이슈 목록 분할 -->
+      <div class="pdf-split">
+        <div class="pdf-viewer-wrap">
+          <div id="pdfPageContainer" style="position:relative;display:inline-block;width:100%;"></div>
+        </div>
+        <div class="pdf-issue-list" id="pdfIssueListEl"></div>
+      </div>
+
+      <!-- 다운로드 -->
+      <div class="actions" style="margin-top:16px;">
+        <button class="btn btn-primary" id="pdfDownloadBtn" disabled>⬇ 주석 PDF 다운로드</button>
+        <span style="font-size:12px;color:var(--ink-muted);" id="pdfDownloadNote"></span>
+      </div>
+
+    </div><!-- /pdfResultsWrap -->
+
+  </div><!-- /PDF main -->
+</div><!-- /pdfMode layout -->
 
 <!-- 규칙 추가/수정 모달 -->
 <div class="modal-overlay" id="ruleModal">
@@ -5030,6 +5267,386 @@ loadExceptions();
     });
   });
 })();
+
+// ========================================================
+// PDF 교정 모드
+// ========================================================
+(function() {
+'use strict';
+
+let PDF_API_BASE = 'http://localhost:8000';
+
+const pdfState = {
+  file: null,
+  pages: [],
+  issues: [],
+  currentPage: 0,
+};
+
+// ── B: 카테고리 → 주석 종류 + 백엔드 색상 키 매핑 ──────────
+// 백엔드 CATEGORY_COLORS 키: 맞춤법·오타·자모분리·띄어쓰기·조사공백
+const PDF_BACKEND_CAT = {
+  spelling:    '맞춤법',
+  spacing:     '띄어쓰기',
+  punct:       '문장부호',
+  terminology: '용어 일관성',
+  custom:      '기타',
+};
+function pickAnnotKind(/* category */) { return 'highlight'; }
+function toBackendCat(issue) {
+  if (issue.ruleId === -1) return '자모분리';
+  if (issue.ruleId === -2) return '조사공백';
+  return PDF_BACKEND_CAT[issue.category] || '기타';
+}
+
+// ── 진행 표시 ────────────────────────────────────────────
+function pdfSetProgress(pct) {
+  const wrap = document.getElementById('pdfProgressWrap');
+  const bar  = document.getElementById('pdfProgressBar');
+  if (!wrap || !bar) return;
+  wrap.classList.toggle('hidden', pct <= 0 || pct >= 100);
+  bar.style.width = pct + '%';
+}
+
+// ── 서버 상태 확인 ───────────────────────────────────────
+async function pdfCheckServer() {
+  const dot  = document.getElementById('pdfServerDot');
+  const text = document.getElementById('pdfServerText');
+  dot.className = 'server-dot checking';
+  text.textContent = '확인 중...';
+  try {
+    const r = await fetch(PDF_API_BASE + '/health',
+      { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      dot.className = 'server-dot online';
+      text.textContent = '서버 연결됨';
+      const btn = document.getElementById('pdfDetectBtn');
+      if (btn && pdfState.file) btn.disabled = false;
+    } else throw new Error();
+  } catch {
+    dot.className = 'server-dot offline';
+    text.textContent = '연결 안 됨';
+  }
+}
+
+// ── 1) 추출 ──────────────────────────────────────────────
+async function pdfExtract(file) {
+  pdfSetProgress(10);
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(PDF_API_BASE + '/extract', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('추출 실패: ' + res.status);
+  const data = await res.json();
+  pdfState.pages = data.pages;
+  pdfSetProgress(55);
+  return data;
+}
+
+// ── 2) 검출 + 단어 인덱스 매핑 (A·C 반영) ────────────────
+function mapCharRangeToWords(start, end, wordSpans) {
+  const hit = [];
+  for (let i = 0; i < wordSpans.length; i++) {
+    const [ws, we] = wordSpans[i];
+    if (ws < end && we > start) hit.push(i);
+  }
+  return hit;
+}
+
+function pdfDetectAll() {
+  const useJamo     = document.getElementById('pdfUseJamo').checked;
+  const useParticle = document.getElementById('pdfUseParticle').checked;
+  const all = [];
+
+  for (const page of pdfState.pages) {
+    // A: detectIssuesInText는 기존 함수 그대로; position / original.length 사용
+    let raw = detectIssuesInText(page.text);
+    if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text));
+    if (useParticle) raw = raw.concat(detectParticleSpacing(page.text));
+
+    for (const issue of raw) {
+      const start   = issue.position;
+      const end     = issue.position + issue.original.length;
+      const wordIdx = mapCharRangeToWords(start, end, page.word_spans);
+      if (wordIdx.length === 0) continue;
+
+      // C: 조사공백(ruleId -2) → 신뢰도 상한 50%
+      let conf = issue.confidence ?? 0.5;
+      if (issue.ruleId === -2) conf = Math.min(conf, 0.5);
+
+      all.push({
+        _id:          all.length,
+        page:         page.index,
+        word_indices: wordIdx,
+        category:     issue.category || 'custom',
+        categoryName: issue.categoryName || PDF_BACKEND_CAT[issue.category] || '기타',
+        backendCat:   toBackendCat(issue),
+        original:     issue.original,
+        suggestion:   issue.suggestion || '',
+        note:         issue.description || '',
+        confidence:   Math.round(conf * 100),
+        kind:         pickAnnotKind(issue.category),
+        ruleId:       issue.ruleId,
+        _selected:    true,
+      });
+    }
+  }
+  pdfState.issues = all;
+  return all;
+}
+
+// ── 3) 페이지 렌더 + 오버레이 ─────────────────────────────
+const CAT_OVERLAY_COLOR = {
+  spelling:    'rgba(230,80,80,.30)',
+  spacing:     'rgba(230,170,40,.35)',
+  punct:       'rgba(80,120,230,.28)',
+  terminology: 'rgba(60,180,110,.30)',
+  custom:      'rgba(160,120,230,.28)',
+};
+
+function pdfRenderPage(pageIndex) {
+  const page = pdfState.pages[pageIndex];
+  if (!page) return;
+  const container = document.getElementById('pdfPageContainer');
+  container.innerHTML = '';
+  container.style.position = 'relative';
+
+  const img = document.createElement('img');
+  img.src = page.image;
+  img.style.cssText = 'display:block;width:100%;height:auto;border-radius:var(--radius-md);';
+  container.appendChild(img);
+
+  img.onload = () => {
+    const scale = img.clientWidth / img.naturalWidth;
+    const z = page.zoom * scale;
+    for (const issue of pdfState.issues.filter(x => x.page === pageIndex && x._selected)) {
+      const color = CAT_OVERLAY_COLOR[issue.category] || CAT_OVERLAY_COLOR.custom;
+      for (const wi of issue.word_indices) {
+        const w = page.words[wi];
+        if (!w) continue;
+        const box = document.createElement('div');
+        box.style.cssText =
+          'position:absolute;pointer-events:none;border-radius:2px;' +
+          'left:' + (w.x0 * z) + 'px;top:' + (w.y0 * z) + 'px;' +
+          'width:' + ((w.x1 - w.x0) * z) + 'px;height:' + ((w.y1 - w.y0) * z) + 'px;' +
+          'background:' + color + ';outline:1.5px solid rgba(124,71,245,.35);';
+        container.appendChild(box);
+      }
+    }
+  };
+
+  document.getElementById('pdfPageInfo').textContent =
+    (pageIndex + 1) + ' / ' + pdfState.pages.length;
+  document.getElementById('pdfPrevBtn').disabled = pageIndex === 0;
+  document.getElementById('pdfNextBtn').disabled = pageIndex === pdfState.pages.length - 1;
+}
+
+// ── 4) 이슈 목록 렌더 ─────────────────────────────────────
+function pdfRenderIssueList() {
+  const container = document.getElementById('pdfIssueListEl');
+  const pageIssues = pdfState.issues.filter(x => x.page === pdfState.currentPage);
+  const total    = pdfState.issues.length;
+  const selected = pdfState.issues.filter(x => x._selected).length;
+
+  document.getElementById('pdfIssueCountBadge').textContent = selected + '/' + total + '개';
+  const dlBtn = document.getElementById('pdfDownloadBtn');
+  dlBtn.disabled = selected === 0;
+  document.getElementById('pdfDownloadNote').textContent =
+    selected > 0 ? selected + '개 항목을 주석으로 삽입합니다' : '';
+
+  if (pageIssues.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state"><span class="empty-state-icon">✓</span>' +
+      '<div class="empty-state-title">이 페이지에 검출 항목 없음</div></div>';
+    return;
+  }
+
+  container.innerHTML = pageIssues.map(issue => `
+    <div class="pdf-issue-card ${issue._selected ? '' : 'deselected'}">
+      <input type="checkbox" class="pdf-issue-chk" data-id="${issue._id}"
+             ${issue._selected ? 'checked' : ''} style="margin-top:3px;flex-shrink:0;">
+      <div class="pdf-issue-body">
+        <div class="pdf-issue-header">
+          <span class="rule-category ${issue.category}" style="font-size:10px;padding:1px 7px;">
+            ${escapeHtml(issue.categoryName)}
+          </span>
+          <span style="font-size:11px;font-weight:700;color:var(--ink-muted);margin-left:auto;">
+            ${issue.confidence}%
+          </span>
+        </div>
+        <div class="pdf-issue-diff" style="margin-top:5px;">
+          <code class="rule-code orig" style="font-size:11px;">${escapeHtml(issue.original)}</code>
+          ${issue.suggestion
+            ? '<span style="color:var(--ink-faint);margin:0 4px;font-size:11px;">→</span>' +
+              '<code class="rule-code fix" style="font-size:11px;">' +
+              escapeHtml(issue.suggestion) + '</code>'
+            : ''}
+        </div>
+      </div>
+    </div>`).join('');
+
+  // 이벤트 위임
+  container.querySelectorAll('.pdf-issue-chk').forEach(chk => {
+    chk.addEventListener('change', e => {
+      const id = parseInt(e.target.dataset.id);
+      const iss = pdfState.issues.find(x => x._id === id);
+      if (!iss) return;
+      iss._selected = e.target.checked;
+      pdfRenderIssueList();
+      pdfRenderPage(pdfState.currentPage);
+    });
+  });
+}
+
+// ── 5) 주석 PDF 다운로드 ──────────────────────────────────
+async function pdfExportAnnotated() {
+  const selected = pdfState.issues
+    .filter(x => x._selected)
+    .map(x => ({
+      page:         x.page,
+      word_indices: x.word_indices,
+      category:     x.backendCat,   // 백엔드 CATEGORY_COLORS 키 (한글)
+      original:     x.original,
+      suggestion:   x.suggestion,
+      note:         x.note,
+      confidence:   x.confidence,
+      kind:         x.kind,
+    }));
+
+  if (!selected.length) { showToast('선택된 항목이 없습니다'); return; }
+
+  const btn = document.getElementById('pdfDownloadBtn');
+  btn.disabled = true;
+  pdfSetProgress(20);
+  try {
+    const fd = new FormData();
+    fd.append('file', pdfState.file);
+    fd.append('issues', JSON.stringify(selected));
+    const res = await fetch(PDF_API_BASE + '/annotate', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('주석 실패: ' + res.status);
+    pdfSetProgress(90);
+    const blob = await res.blob();
+    const base = (pdfState.file.name || 'document.pdf').replace(/\.[^.]+$/, '');
+    triggerDownload(blob, base + '_교정.pdf');
+    showToast('주석 PDF 다운로드 완료 (' + selected.length + '개)', 3000);
+  } catch (err) {
+    showToast('다운로드 실패: ' + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    pdfSetProgress(100);
+  }
+}
+
+// ── 파일 로드 ─────────────────────────────────────────────
+function pdfHandleFile(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    showToast('PDF 파일만 지원합니다'); return;
+  }
+  pdfState.file    = file;
+  pdfState.pages   = [];
+  pdfState.issues  = [];
+  pdfState.currentPage = 0;
+
+  document.getElementById('pdfFileName').textContent = file.name;
+  document.getElementById('pdfFileMeta').textContent =
+    (file.size / 1024).toFixed(1) + ' KB';
+  document.getElementById('pdfFileInfo').classList.add('show');
+  document.getElementById('pdfDropZone').style.display = 'none';
+  document.getElementById('pdfDetectPanel').classList.remove('hidden');
+  document.getElementById('pdfResultsWrap').classList.add('hidden');
+
+  const dot = document.getElementById('pdfServerDot');
+  const isOnline = dot.classList.contains('online');
+  document.getElementById('pdfDetectBtn').disabled = !isOnline;
+}
+
+// ── 이벤트 바인딩 ─────────────────────────────────────────
+const pdfDropZone = document.getElementById('pdfDropZone');
+pdfDropZone.addEventListener('click',    () => document.getElementById('pdfFileInput').click());
+pdfDropZone.addEventListener('dragover', e => { e.preventDefault(); pdfDropZone.classList.add('dragover'); });
+pdfDropZone.addEventListener('dragleave',() => pdfDropZone.classList.remove('dragover'));
+pdfDropZone.addEventListener('drop', e => {
+  e.preventDefault(); pdfDropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0]; if (f) pdfHandleFile(f);
+});
+document.getElementById('pdfFileInput').addEventListener('change', e => {
+  if (e.target.files[0]) pdfHandleFile(e.target.files[0]);
+  e.target.value = '';
+});
+document.getElementById('pdfChangeFileBtn').addEventListener('click', () => {
+  document.getElementById('pdfFileInfo').classList.remove('show');
+  document.getElementById('pdfDropZone').style.display = '';
+  document.getElementById('pdfDetectPanel').classList.add('hidden');
+  document.getElementById('pdfResultsWrap').classList.add('hidden');
+  pdfState.file = null; pdfState.pages = []; pdfState.issues = [];
+});
+
+document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('pdfDetectBtn');
+  btn.disabled = true;
+  pdfSetProgress(5);
+  try {
+    await pdfExtract(pdfState.file);
+    const issues = pdfDetectAll();
+    pdfSetProgress(85);
+    document.getElementById('pdfResultsWrap').classList.remove('hidden');
+    pdfState.currentPage = 0;
+    pdfRenderPage(0);
+    pdfRenderIssueList();
+    showToast('검출 완료 — ' + issues.length + '개 항목', 3000);
+    pdfSetProgress(100);
+  } catch (err) {
+    showToast('오류: ' + err.message); console.error(err);
+  } finally { btn.disabled = false; }
+});
+
+document.getElementById('pdfPrevBtn').addEventListener('click', () => {
+  if (pdfState.currentPage > 0) {
+    pdfState.currentPage--;
+    pdfRenderPage(pdfState.currentPage);
+    pdfRenderIssueList();
+  }
+});
+document.getElementById('pdfNextBtn').addEventListener('click', () => {
+  if (pdfState.currentPage < pdfState.pages.length - 1) {
+    pdfState.currentPage++;
+    pdfRenderPage(pdfState.currentPage);
+    pdfRenderIssueList();
+  }
+});
+
+document.getElementById('pdfSelectAllBtn').addEventListener('click', () => {
+  pdfState.issues.forEach(i => i._selected = true);
+  pdfRenderIssueList(); pdfRenderPage(pdfState.currentPage);
+});
+document.getElementById('pdfDeselectAllBtn').addEventListener('click', () => {
+  pdfState.issues.forEach(i => i._selected = false);
+  pdfRenderIssueList(); pdfRenderPage(pdfState.currentPage);
+});
+
+document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
+
+document.getElementById('pdfServerRetry').addEventListener('click', () => {
+  PDF_API_BASE = document.getElementById('pdfApiBase').value.trim().replace(/\/$/, '');
+  pdfCheckServer();
+});
+document.getElementById('pdfApiBase').addEventListener('change', e => {
+  PDF_API_BASE = e.target.value.trim().replace(/\/$/, '');
+});
+
+// ── 모드 전환 ─────────────────────────────────────────────
+document.querySelectorAll('.mode-nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const mode = tab.dataset.mode;
+    document.querySelectorAll('.mode-nav-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('hwpxMode').style.display = mode === 'hwpx' ? '' : 'none';
+    document.getElementById('pdfMode').style.display  = mode === 'pdf'  ? '' : 'none';
+    if (mode === 'pdf') pdfCheckServer();
+  });
+});
+
+})(); // END PDF module
 </script>
 
 </body>
