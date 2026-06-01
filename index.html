@@ -5286,6 +5286,8 @@ const PDF_CAT_NAME = {
 function toCatName(issue) {
   if (issue.ruleId === -1) return '자모분리';
   if (issue.ruleId === -2) return '조사공백';
+  if (issue.ruleId === -3) return '이중공백';
+  if (issue.categoryName)  return issue.categoryName;
   return PDF_CAT_NAME[issue.category] || '기타';
 }
 
@@ -5419,13 +5421,38 @@ function pdfDetectAll() {
     if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text));
     if (useParticle) raw = raw.concat(detectParticleSpacing(page.text));
 
-    // PDF 전용: 줄 바꿈(\n)을 가로지르는 이슈 제거
-    // PDF에서 줄 바꿈은 \n으로 저장되는데, 정규식의 \s가 이를 매칭해 오탐 발생
-    // → 매칭된 텍스트 구간 안에 \n이 있으면 줄 넘김 아티팩트로 간주하고 폐기
+    // PDF 전용 필터 1: 줄 바꿈(\n) 가로지르는 이슈 제거 (정규식 \s가 \n 매칭)
     raw = raw.filter(issue => {
       const span = page.text.slice(issue.position, issue.position + issue.original.length);
       return !span.includes('\n');
     });
+
+    // PDF 전용 필터 2: 조사공백에서 단음절 고빈도 조사 제외
+    // 이/가/는/은/도/만/에/로/의 는 지시어·부사·복합어 첫 글자와 구별 불가 → 오탐률 95%+
+    const PDF_JOSA_SKIP = new Set(['이','가','는','은','도','만','에','로','의']);
+    raw = raw.filter(issue => {
+      if (issue.ruleId !== -2) return true;
+      const parts    = issue.original.trim().split(/\s+/);
+      const particle = parts[parts.length - 1];
+      return !PDF_JOSA_SKIP.has(particle);
+    });
+
+    // PDF 전용 추가 감지: 이중공백 (실제 오류이지만 기본 감지기가 놓침)
+    const DBL_SPACE = /([가-힣])(  )([가-힣])/g;
+    let dm;
+    while ((dm = DBL_SPACE.exec(page.text)) !== null) {
+      const pos = dm.index;
+      raw.push({
+        ruleId:      -3,
+        category:    'spacing',
+        categoryName:'이중공백',
+        position:    pos,
+        original:    dm[0],
+        suggestion:  dm[1] + ' ' + dm[3],
+        description: '이중 공백',
+        confidence:  0.95,
+      });
+    }
 
     for (const issue of raw) {
       const start   = issue.position;
