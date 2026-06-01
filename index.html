@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <style>
   :root {
     /* ── 메인 팔레트 ── */
@@ -1977,22 +1979,8 @@
         <div class="sidebar-logo-icon">📋</div>
         <div>
           <div>PDF 교정</div>
-          <div class="sidebar-logo-sub">PyMuPDF 하이브리드</div>
+          <div class="sidebar-logo-sub">브라우저 내장 처리</div>
         </div>
-      </div>
-    </div>
-
-    <div class="pdf-server-section">
-      <div class="nav-label" style="padding:10px 16px 4px;">백엔드 서버</div>
-      <div class="pdf-server-bar">
-        <span class="server-dot offline" id="pdfServerDot"></span>
-        <span id="pdfServerText">연결 안 됨</span>
-      </div>
-      <div style="padding:0 16px 8px;">
-        <input type="text" id="pdfApiBase" value="http://localhost:8000"
-               style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-family:var(--font);color:var(--ink);">
-        <button class="btn btn-secondary btn-sm" id="pdfServerRetry"
-                style="margin-top:6px;width:100%;">연결 확인</button>
       </div>
     </div>
 
@@ -2012,8 +2000,8 @@
     </div>
 
     <div class="sidebar-info" style="margin-top:auto;">
-      <strong>서버 실행 방법</strong><br>
-      <code style="font-size:10px;word-break:break-all;">uvicorn pdf_proofreader_service:app --port 8000</code>
+      <strong>서버 불필요</strong><br>
+      PDF.js + pdf-lib 기반으로 브라우저에서 모두 처리됩니다. 텍스트 레이어가 있는 PDF만 지원합니다.
     </div>
   </div><!-- /PDF sidebar -->
 
@@ -2054,7 +2042,7 @@
     <!-- 검출 버튼 패널 -->
     <div class="panel hidden" id="pdfDetectPanel">
       <div class="actions" style="margin:0;">
-        <button class="btn btn-primary" id="pdfDetectBtn" disabled>⚡ 오류 검출 시작</button>
+        <button class="btn btn-primary" id="pdfDetectBtn">⚡ 오류 검출 시작</button>
       </div>
     </div>
 
@@ -5269,12 +5257,16 @@ loadExceptions();
 })();
 
 // ========================================================
-// PDF 교정 모드
+// PDF 교정 모드 (브라우저 내장 처리: PDF.js + pdf-lib)
 // ========================================================
 (function() {
 'use strict';
 
-let PDF_API_BASE = 'http://localhost:8000';
+// PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const RENDER_ZOOM = 2.0;
 
 const pdfState = {
   file: null,
@@ -5283,20 +5275,18 @@ const pdfState = {
   currentPage: 0,
 };
 
-// ── B: 카테고리 → 주석 종류 + 백엔드 색상 키 매핑 ──────────
-// 백엔드 CATEGORY_COLORS 키: 맞춤법·오타·자모분리·띄어쓰기·조사공백
-const PDF_BACKEND_CAT = {
+// ── 카테고리 매핑 ────────────────────────────────────────
+const PDF_CAT_NAME = {
   spelling:    '맞춤법',
   spacing:     '띄어쓰기',
   punct:       '문장부호',
   terminology: '용어 일관성',
   custom:      '기타',
 };
-function pickAnnotKind(/* category */) { return 'highlight'; }
-function toBackendCat(issue) {
+function toCatName(issue) {
   if (issue.ruleId === -1) return '자모분리';
   if (issue.ruleId === -2) return '조사공백';
-  return PDF_BACKEND_CAT[issue.category] || '기타';
+  return PDF_CAT_NAME[issue.category] || '기타';
 }
 
 // ── 진행 표시 ────────────────────────────────────────────
@@ -5308,38 +5298,78 @@ function pdfSetProgress(pct) {
   bar.style.width = pct + '%';
 }
 
-// ── 서버 상태 확인 ───────────────────────────────────────
-async function pdfCheckServer() {
-  const dot  = document.getElementById('pdfServerDot');
-  const text = document.getElementById('pdfServerText');
-  dot.className = 'server-dot checking';
-  text.textContent = '확인 중...';
-  try {
-    const r = await fetch(PDF_API_BASE + '/health',
-      { signal: AbortSignal.timeout(3000) });
-    if (r.ok) {
-      dot.className = 'server-dot online';
-      text.textContent = '서버 연결됨';
-      const btn = document.getElementById('pdfDetectBtn');
-      if (btn && pdfState.file) btn.disabled = false;
-    } else throw new Error();
-  } catch {
-    dot.className = 'server-dot offline';
-    text.textContent = '연결 안 됨';
-  }
-}
-
-// ── 1) 추출 ──────────────────────────────────────────────
+// ── 1) 브라우저 PDF 추출 (PDF.js) ────────────────────────
 async function pdfExtract(file) {
   pdfSetProgress(10);
-  const fd = new FormData();
-  fd.append('file', file);
-  const res = await fetch(PDF_API_BASE + '/extract', { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('추출 실패: ' + res.status);
-  const data = await res.json();
-  pdfState.pages = data.pages;
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+
+  for (let pno = 0; pno < pdfDoc.numPages; pno++) {
+    const page  = await pdfDoc.getPage(pno + 1);
+    const vp1   = page.getViewport({ scale: 1.0 });
+    const vpZ   = page.getViewport({ scale: RENDER_ZOOM });
+    const pageH = vp1.height;
+
+    // 렌더링
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.round(vpZ.width);
+    canvas.height = Math.round(vpZ.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vpZ }).promise;
+    const imageDataUrl = canvas.toDataURL('image/png');
+
+    // 텍스트 추출
+    const tc = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+    const wordList = [];
+    const spans    = [];
+    let text   = '';
+    let cursor = 0;
+    let prevItem = null;
+
+    for (const item of tc.items) {
+      if (!('str' in item) || item.str === '') continue;
+      const str = item.str;
+      const x0_pdf = item.transform[4];
+      const y_pdf  = item.transform[5];          // 텍스트 베이스라인 (PDF 좌표: 아래=0)
+      const w_pdf  = Math.abs(item.width  || 0);
+      const h_pdf  = Math.abs(item.height || 10); // 높이 없으면 10pt 기본
+      const x1_pdf = x0_pdf + w_pdf;
+
+      // top-left 좌표로 변환 (y 방향 반전)
+      const x0 = x0_pdf;
+      const y0 = pageH - (y_pdf + h_pdf); // 텍스트 상단
+      const x1 = x1_pdf;
+      const y1 = pageH - y_pdf;           // 텍스트 하단
+
+      // 구분자 결정
+      let sep = '';
+      if (prevItem !== null) {
+        const dy = Math.abs(item.transform[5] - prevItem.transform[5]);
+        if (dy > 3 || prevItem.hasEOL) {
+          sep = '\n';
+        } else {
+          const gap = x0_pdf - (prevItem.transform[4] + Math.abs(prevItem.width || 0));
+          const noTrailSpace = str[0] !== ' ' &&
+            prevItem.str[prevItem.str.length - 1] !== ' ';
+          if (noTrailSpace && gap > 1) sep = ' ';
+        }
+      }
+
+      if (sep) { text += sep; cursor += sep.length; }
+      spans.push([cursor, cursor + str.length]);
+      text   += str;
+      cursor += str.length;
+      wordList.push({ i: wordList.length, text: str, x0, y0, x1, y1 });
+      prevItem = item;
+    }
+
+    pages.push({ index: pno, zoom: RENDER_ZOOM, words: wordList, word_spans: spans, text, image: imageDataUrl });
+    pdfSetProgress(10 + Math.round((pno + 1) / pdfDoc.numPages * 45));
+  }
+
+  pdfState.pages = pages;
   pdfSetProgress(55);
-  return data;
+  return { page_count: pages.length, pages };
 }
 
 // ── 2) 검출 + 단어 인덱스 매핑 (A·C 반영) ────────────────
@@ -5378,8 +5408,8 @@ function pdfDetectAll() {
         page:         page.index,
         word_indices: wordIdx,
         category:     issue.category || 'custom',
-        categoryName: issue.categoryName || PDF_BACKEND_CAT[issue.category] || '기타',
-        backendCat:   toBackendCat(issue),
+        categoryName: toCatName(issue),
+        backendCat:   toCatName(issue),
         original:     issue.original,
         suggestion:   issue.suggestion || '',
         note:         issue.description || '',
@@ -5497,34 +5527,56 @@ function pdfRenderIssueList() {
   });
 }
 
-// ── 5) 주석 PDF 다운로드 ──────────────────────────────────
-async function pdfExportAnnotated() {
-  const selected = pdfState.issues
-    .filter(x => x._selected)
-    .map(x => ({
-      page:         x.page,
-      word_indices: x.word_indices,
-      category:     x.backendCat,   // 백엔드 CATEGORY_COLORS 키 (한글)
-      original:     x.original,
-      suggestion:   x.suggestion,
-      note:         x.note,
-      confidence:   x.confidence,
-      kind:         x.kind,
-    }));
+// ── 5) 주석 PDF 다운로드 (pdf-lib, 브라우저 처리) ───────────
+const ANNOT_COLORS = {
+  '맞춤법':   [0.95, 0.45, 0.45],
+  '오타':     [0.95, 0.45, 0.45],
+  '자모분리': [0.55, 0.45, 0.90],
+  '띄어쓰기': [0.95, 0.70, 0.20],
+  '조사공백': [0.95, 0.70, 0.20],
+};
+const ANNOT_DEFAULT = [0.95, 0.70, 0.20];
 
+async function pdfExportAnnotated() {
+  const selected = pdfState.issues.filter(x => x._selected);
   if (!selected.length) { showToast('선택된 항목이 없습니다'); return; }
 
   const btn = document.getElementById('pdfDownloadBtn');
   btn.disabled = true;
   pdfSetProgress(20);
   try {
-    const fd = new FormData();
-    fd.append('file', pdfState.file);
-    fd.append('issues', JSON.stringify(selected));
-    const res = await fetch(PDF_API_BASE + '/annotate', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error('주석 실패: ' + res.status);
-    pdfSetProgress(90);
-    const blob = await res.blob();
+    const { PDFDocument, rgb } = PDFLib;
+    const arrayBuffer = await pdfState.file.arrayBuffer();
+    const pdfDoc  = await PDFDocument.load(arrayBuffer);
+    const pdfPages = pdfDoc.getPages();
+    pdfSetProgress(50);
+
+    for (const issue of selected) {
+      const page     = pdfPages[issue.page];
+      const pageData = pdfState.pages[issue.page];
+      if (!page || !pageData) continue;
+      const { height: pageH } = page.getSize();
+      const [cr, cg, cb] = ANNOT_COLORS[issue.backendCat] || ANNOT_DEFAULT;
+
+      for (const wi of issue.word_indices) {
+        const w = pageData.words[wi];
+        if (!w) continue;
+        // w 좌표: top-left origin (points) → pdf-lib: bottom-left origin
+        page.drawRectangle({
+          x:      w.x0,
+          y:      pageH - w.y1,       // bottom of rect in pdf-lib coords
+          width:  Math.max(w.x1 - w.x0, 1),
+          height: Math.max(w.y1 - w.y0, 1),
+          color:  rgb(cr, cg, cb),
+          opacity: 0.30,
+          borderWidth: 0,
+        });
+      }
+    }
+
+    pdfSetProgress(85);
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
     const base = (pdfState.file.name || 'document.pdf').replace(/\.[^.]+$/, '');
     triggerDownload(blob, base + '_교정.pdf');
     showToast('주석 PDF 다운로드 완료 (' + selected.length + '개)', 3000);
@@ -5554,10 +5606,6 @@ function pdfHandleFile(file) {
   document.getElementById('pdfDropZone').style.display = 'none';
   document.getElementById('pdfDetectPanel').classList.remove('hidden');
   document.getElementById('pdfResultsWrap').classList.add('hidden');
-
-  const dot = document.getElementById('pdfServerDot');
-  const isOnline = dot.classList.contains('online');
-  document.getElementById('pdfDetectBtn').disabled = !isOnline;
 }
 
 // ── 이벤트 바인딩 ─────────────────────────────────────────
@@ -5626,14 +5674,6 @@ document.getElementById('pdfDeselectAllBtn').addEventListener('click', () => {
 
 document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
 
-document.getElementById('pdfServerRetry').addEventListener('click', () => {
-  PDF_API_BASE = document.getElementById('pdfApiBase').value.trim().replace(/\/$/, '');
-  pdfCheckServer();
-});
-document.getElementById('pdfApiBase').addEventListener('change', e => {
-  PDF_API_BASE = e.target.value.trim().replace(/\/$/, '');
-});
-
 // ── 모드 전환 ─────────────────────────────────────────────
 document.querySelectorAll('.mode-nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -5642,7 +5682,6 @@ document.querySelectorAll('.mode-nav-tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('hwpxMode').style.display = mode === 'hwpx' ? '' : 'none';
     document.getElementById('pdfMode').style.display  = mode === 'pdf'  ? '' : 'none';
-    if (mode === 'pdf') pdfCheckServer();
   });
 });
 
