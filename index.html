@@ -3408,7 +3408,7 @@ function detectParticleSpacing(text) {
   ].sort((a, b) => b.length - a.length);
 
   const re = new RegExp(
-    '([\\uAC00-\\uD7A3a-zA-Z0-9)])(?:\\([^)\\x01]*\\))? (' + particles.join('|') + ')(?=[\\s\x01.,!?]|$)',
+    '([\\uAC00-\\uD7A3a-zA-Z0-9)])(?:\\([^)\\x01]*\\))? (' + particles.join('|') + ')(?=[\\s\x01.,!?:;]|$)',
     'g'
   );
   let m;
