@@ -747,6 +747,7 @@
   .rule-category.punct       { background: var(--surface-alt);   color: var(--ink-soft); }
   .rule-category.terminology { background: var(--success-soft);  color: var(--success); }
   .rule-category.custom      { background: var(--accent-soft);   color: var(--accent); }
+  .rule-category.ai          { background: #ede6ff; color: #5b21b6; }
 
   .rule-code {
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -1997,6 +1998,45 @@
           <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">PDF 오탐 주의 — 신뢰도 ≤50% 자동 적용</div>
         </div>
       </label>
+    </div>
+
+    <!-- Claude AI 교정 섹션 -->
+    <div style="padding:8px 16px 14px;border-bottom:1px solid var(--sidebar-line);">
+      <div class="nav-label" style="margin-bottom:8px;">✨ Claude AI 교정</div>
+
+      <div style="margin-bottom:8px;">
+        <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">Anthropic API 키</div>
+        <div style="display:flex;gap:4px;align-items:center;">
+          <input type="password" id="pdfClaudeApiKey" placeholder="sk-ant-..."
+            style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+          <button id="pdfClaudeKeyToggle" title="보기/숨기기"
+            style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:12px;color:var(--ink-soft);">👁</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:8px;">
+        <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">모델</div>
+        <select id="pdfClaudeModel"
+          style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+          <option value="claude-haiku-4-5-20251001">Haiku (빠름 · 저렴)</option>
+          <option value="claude-sonnet-4-6">Sonnet (정확)</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+          <span style="color:var(--ink-faint);">교정 비율 (신뢰도 상위 N%)</span>
+          <span id="pdfClaudeRatioVal" style="color:var(--accent);font-weight:700;">70%</span>
+        </div>
+        <input type="range" id="pdfClaudeRatio" min="30" max="100" value="70" class="confidence-slider">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-top:2px;">
+          <span>엄격 (30%)</span>
+          <span>전체 (100%)</span>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="pdfClaudeBtn" style="width:100%;font-size:12px;">✨ Claude 교정 실행</button>
+      <div id="pdfClaudeStatus" style="font-size:11px;color:var(--ink-faint);margin-top:6px;text-align:center;min-height:14px;"></div>
     </div>
 
     <div class="sidebar-info" style="margin-top:auto;">
@@ -5291,6 +5331,142 @@ function maskParensForSpacing(text) {
   );
 }
 
+// ── Claude AI 교정 ───────────────────────────────────────────
+async function pdfCallClaudeApi(apiKey, model, text) {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content:
+          '당신은 한국어 교재 맞춤법·띄어쓰기 교정 전문가입니다.\n' +
+          '아래 텍스트에서 실제 오류만 찾아 JSON 배열로만 반환하세요.\n\n' +
+          '형식: [{"original":"오류문자열","suggestion":"교정안","category":"spelling|spacing|punct|style","confidence":0.0~1.0,"reason":"이유"}]\n\n' +
+          '규칙:\n' +
+          '- original은 실제 텍스트에 그대로 존재하는 짧은 문자열\n' +
+          '- confidence: 1.0=확실한 오류, 0.7=높은 의심, 0.5=낮은 의심\n' +
+          '- 신뢰도 높은 순으로 정렬\n' +
+          '- 오류 없으면 []\n' +
+          '- JSON 배열만 반환, 다른 설명 없음\n\n' +
+          '텍스트:\n' + text.slice(0, 3000),
+      }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Claude API 오류 ${resp.status}`);
+  }
+  const data = await resp.json();
+  const rawText = data.content?.[0]?.text || '[]';
+  try {
+    const match = rawText.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(match ? match[0] : '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+async function pdfRunClaudeDetect() {
+  const apiKey = document.getElementById('pdfClaudeApiKey').value.trim();
+  const model  = document.getElementById('pdfClaudeModel').value;
+  const ratio  = parseInt(document.getElementById('pdfClaudeRatio').value) / 100;
+  const status = document.getElementById('pdfClaudeStatus');
+
+  if (!apiKey) { showToast('API 키를 입력하세요'); return; }
+  if (!pdfState.pages.length) { showToast('먼저 PDF를 로드하고 오류 검출을 실행하세요'); return; }
+
+  localStorage.setItem('hwpx_claude_api_key', apiKey);
+
+  const btn = document.getElementById('pdfClaudeBtn');
+  btn.disabled = true;
+  status.textContent = '준비 중…';
+  pdfSetProgress(2);
+
+  const allRaw = [];
+  const pages  = pdfState.pages;
+  let processed = 0;
+  const CONCURRENCY = 3;
+
+  const queue = [...pages];
+  async function processOne() {
+    if (!queue.length) return;
+    const page = queue.shift();
+    try {
+      const corrections = await pdfCallClaudeApi(apiKey, model, page.text);
+      for (const c of corrections) allRaw.push({ pageIndex: page.index, correction: c });
+    } catch (_) { /* 개별 페이지 실패는 무시 */ }
+    processed++;
+    pdfSetProgress(Math.round((processed / pages.length) * 85) + 5);
+    status.textContent = `${processed} / ${pages.length} 페이지 처리 중…`;
+    await processOne();
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages.length) }, processOne));
+
+    // 신뢰도 내림차순 → 상위 ratio% 선택
+    allRaw.sort((a, b) => (b.correction.confidence ?? 0) - (a.correction.confidence ?? 0));
+    const topCount = Math.max(1, Math.ceil(allRaw.length * ratio));
+    const selected = allRaw.slice(0, topCount);
+
+    // 기존 AI 교정 항목 제거 후 새로 추가
+    pdfState.issues = pdfState.issues.filter(x => x.ruleId !== -99);
+    const baseId = pdfState.issues.length
+      ? Math.max(...pdfState.issues.map(x => x._id)) + 1 : 0;
+    let added = 0;
+
+    for (const { pageIndex, correction } of selected) {
+      const page = pdfState.pages.find(p => p.index === pageIndex);
+      if (!page) continue;
+      const pos = page.text.indexOf(correction.original);
+      if (pos === -1) continue;
+      const len = correction.original.length;
+      const wordIdx = mapCharRangeToWords(pos, pos + len, page.word_spans);
+      if (!wordIdx.length) continue;
+
+      pdfState.issues.push({
+        _id:          baseId + added,
+        page:         pageIndex,
+        word_indices: wordIdx,
+        _pos:         pos,
+        _len:         len,
+        category:     'ai',
+        categoryName: 'AI 교정',
+        backendCat:   'AI 교정',
+        original:     correction.original,
+        suggestion:   correction.suggestion || '',
+        note:         correction.reason || '',
+        confidence:   Math.round((correction.confidence ?? 0.7) * 100),
+        kind:         'highlight',
+        ruleId:       -99,
+        _selected:    true,
+      });
+      added++;
+    }
+
+    pdfSetProgress(100);
+    status.textContent = `완료 — AI 교정 ${added}개 추가됨`;
+    document.getElementById('pdfResultsWrap').classList.remove('hidden');
+    await pdfRenderPage(pdfState.currentPage);
+    pdfRenderIssueList();
+    showToast(`Claude AI 교정 완료 — ${added}개 항목`, 4000);
+  } catch (err) {
+    showToast('Claude API 오류: ' + err.message);
+    status.textContent = '오류 발생';
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 const pdfState = {
   file: null,
   pages: [],
@@ -5307,10 +5483,11 @@ const PDF_CAT_NAME = {
   custom:      '기타',
 };
 function toCatName(issue) {
-  if (issue.ruleId === -1) return '자모분리';
-  if (issue.ruleId === -2) return '조사공백';
-  if (issue.ruleId === -3) return '이중공백';
-  if (issue.categoryName)  return issue.categoryName;
+  if (issue.ruleId === -99) return 'AI 교정';
+  if (issue.ruleId === -1)  return '자모분리';
+  if (issue.ruleId === -2)  return '조사공백';
+  if (issue.ruleId === -3)  return '이중공백';
+  if (issue.categoryName)   return issue.categoryName;
   return PDF_CAT_NAME[issue.category] || '기타';
 }
 
@@ -5568,6 +5745,7 @@ const CAT_OVERLAY_COLOR = {
   punct:       'rgba(80,120,230,.28)',
   terminology: 'rgba(60,180,110,.30)',
   custom:      'rgba(160,120,230,.28)',
+  ai:          'rgba(124,71,245,.38)',
 };
 
 async function pdfRenderPage(pageIndex) {
@@ -5711,6 +5889,7 @@ const ANNOT_COLORS = {
   '자모분리': [0.55, 0.45, 0.90],
   '띄어쓰기': [0.95, 0.70, 0.20],
   '조사공백': [0.95, 0.70, 0.20],
+  'AI 교정':  [0.49, 0.28, 0.96],
 };
 const ANNOT_DEFAULT = [0.95, 0.70, 0.20];
 
@@ -5911,6 +6090,22 @@ document.getElementById('pdfDeselectAllBtn').addEventListener('click', async () 
 });
 
 document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
+
+// ── Claude AI 교정 UI 핸들러 ──────────────────────────────────
+document.getElementById('pdfClaudeRatio').addEventListener('input', function () {
+  document.getElementById('pdfClaudeRatioVal').textContent = this.value + '%';
+});
+document.getElementById('pdfClaudeKeyToggle').addEventListener('click', () => {
+  const inp = document.getElementById('pdfClaudeApiKey');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+});
+document.getElementById('pdfClaudeBtn').addEventListener('click', pdfRunClaudeDetect);
+
+// localStorage에 저장된 API 키 복원
+(function () {
+  const saved = localStorage.getItem('hwpx_claude_api_key');
+  if (saved) document.getElementById('pdfClaudeApiKey').value = saved;
+})();
 
 // ── 모드 전환 ─────────────────────────────────────────────
 document.querySelectorAll('.mode-nav-tab').forEach(tab => {
