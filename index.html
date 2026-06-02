@@ -2000,29 +2000,64 @@
       </label>
     </div>
 
-    <!-- Claude AI 교정 섹션 -->
+    <!-- AI 교정 섹션 (Ollama / Claude 통합) -->
     <div style="padding:8px 16px 14px;border-bottom:1px solid var(--sidebar-line);">
-      <div class="nav-label" style="margin-bottom:8px;">✨ Claude AI 교정</div>
+      <div class="nav-label" style="margin-bottom:8px;">✨ AI 교정</div>
 
       <div style="margin-bottom:8px;">
-        <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">Anthropic API 키</div>
-        <div style="display:flex;gap:4px;align-items:center;">
-          <input type="password" id="pdfClaudeApiKey" placeholder="sk-ant-..."
-            style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
-          <button id="pdfClaudeKeyToggle" title="보기/숨기기"
-            style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:12px;color:var(--ink-soft);">👁</button>
-        </div>
-      </div>
-
-      <div style="margin-bottom:8px;">
-        <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">모델</div>
-        <select id="pdfClaudeModel"
+        <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">AI 제공자</div>
+        <select id="pdfAiProvider"
           style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
-          <option value="claude-haiku-4-5-20251001">Haiku (빠름 · 저렴)</option>
-          <option value="claude-sonnet-4-6">Sonnet (정확)</option>
+          <option value="ollama">Ollama (로컬 · 무료)</option>
+          <option value="claude">Claude API (키 필요)</option>
         </select>
       </div>
 
+      <!-- Ollama 설정 -->
+      <div id="pdfAiOllamaOpts">
+        <div style="margin-bottom:6px;">
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">서버 주소</div>
+          <input type="text" id="pdfOllamaUrl" value="http://localhost:11434"
+            style="width:100%;box-sizing:border-box;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+        </div>
+        <div style="margin-bottom:6px;">
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">모델</div>
+          <div style="display:flex;gap:4px;">
+            <input type="text" id="pdfOllamaModel" value="qwen2.5:7b"
+              style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+            <button id="pdfOllamaTestBtn" title="연결 확인"
+              style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;color:var(--ink-soft);">연결</button>
+          </div>
+          <div id="pdfOllamaTestResult" style="font-size:10px;margin-top:4px;line-height:1.4;"></div>
+        </div>
+        <div style="font-size:10px;color:var(--ink-faint);line-height:1.6;padding:6px 8px;background:var(--surface-alt);border-radius:4px;margin-bottom:8px;">
+          CORS 허용 필요:<br>
+          <code style="font-size:10px;color:var(--accent);">OLLAMA_ORIGINS=* ollama serve</code>
+        </div>
+      </div>
+
+      <!-- Claude 설정 -->
+      <div id="pdfAiClaudeOpts" style="display:none;">
+        <div style="margin-bottom:6px;">
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">Anthropic API 키</div>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <input type="password" id="pdfClaudeApiKey" placeholder="sk-ant-..."
+              style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+            <button id="pdfClaudeKeyToggle" title="보기/숨기기"
+              style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:12px;color:var(--ink-soft);">👁</button>
+          </div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">모델</div>
+          <select id="pdfClaudeModel"
+            style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
+            <option value="claude-haiku-4-5-20251001">Haiku (빠름 · 저렴)</option>
+            <option value="claude-sonnet-4-6">Sonnet (정확)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 공통: 교정 비율 + 실행 -->
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
           <span style="color:var(--ink-faint);">교정 비율 (신뢰도 상위 N%)</span>
@@ -2035,7 +2070,7 @@
         </div>
       </div>
 
-      <button class="btn btn-primary" id="pdfClaudeBtn" style="width:100%;font-size:12px;">✨ Claude 교정 실행</button>
+      <button class="btn btn-primary" id="pdfClaudeBtn" style="width:100%;font-size:12px;">✨ AI 교정 실행</button>
       <div id="pdfClaudeStatus" style="font-size:11px;color:var(--ink-faint);margin-top:6px;text-align:center;min-height:14px;"></div>
     </div>
 
@@ -5331,7 +5366,27 @@ function maskParensForSpacing(text) {
   );
 }
 
-// ── Claude AI 교정 ───────────────────────────────────────────
+// ── AI 교정 (Claude / Ollama 공통) ──────────────────────────
+const AI_PROOFREAD_PROMPT =
+  '당신은 한국어 교재 맞춤법·띄어쓰기 교정 전문가입니다.\n' +
+  '아래 텍스트에서 실제 오류만 찾아 JSON 배열로만 반환하세요.\n\n' +
+  '형식: [{"original":"오류문자열","suggestion":"교정안","category":"spelling|spacing|punct|style","confidence":0.0~1.0,"reason":"이유"}]\n\n' +
+  '규칙:\n' +
+  '- original은 실제 텍스트에 그대로 존재하는 짧은 문자열\n' +
+  '- confidence: 1.0=확실한 오류, 0.7=높은 의심, 0.5=낮은 의심\n' +
+  '- 신뢰도 높은 순으로 정렬\n' +
+  '- 오류 없으면 []\n' +
+  '- JSON 배열만 반환, 다른 설명 없음\n\n' +
+  '텍스트:\n';
+
+function parseAiJson(rawText) {
+  try {
+    const match = rawText.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(match ? match[0] : '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
 async function pdfCallClaudeApi(apiKey, model, text) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -5344,20 +5399,7 @@ async function pdfCallClaudeApi(apiKey, model, text) {
     body: JSON.stringify({
       model,
       max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content:
-          '당신은 한국어 교재 맞춤법·띄어쓰기 교정 전문가입니다.\n' +
-          '아래 텍스트에서 실제 오류만 찾아 JSON 배열로만 반환하세요.\n\n' +
-          '형식: [{"original":"오류문자열","suggestion":"교정안","category":"spelling|spacing|punct|style","confidence":0.0~1.0,"reason":"이유"}]\n\n' +
-          '규칙:\n' +
-          '- original은 실제 텍스트에 그대로 존재하는 짧은 문자열\n' +
-          '- confidence: 1.0=확실한 오류, 0.7=높은 의심, 0.5=낮은 의심\n' +
-          '- 신뢰도 높은 순으로 정렬\n' +
-          '- 오류 없으면 []\n' +
-          '- JSON 배열만 반환, 다른 설명 없음\n\n' +
-          '텍스트:\n' + text.slice(0, 3000),
-      }],
+      messages: [{ role: 'user', content: AI_PROOFREAD_PROMPT + text.slice(0, 3000) }],
     }),
   });
 
@@ -5366,24 +5408,68 @@ async function pdfCallClaudeApi(apiKey, model, text) {
     throw new Error(err.error?.message || `Claude API 오류 ${resp.status}`);
   }
   const data = await resp.json();
-  const rawText = data.content?.[0]?.text || '[]';
+  return parseAiJson(data.content?.[0]?.text || '[]');
+}
+
+async function pdfCallOllamaApi(baseUrl, model, text) {
+  const resp = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      options: { temperature: 0.1 },
+      messages: [{ role: 'user', content: AI_PROOFREAD_PROMPT + text.slice(0, 3000) }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Ollama 오류 ${resp.status}`);
+  const data = await resp.json();
+  return parseAiJson(data.message?.content || '[]');
+}
+
+async function pdfTestOllamaConnection() {
+  const url    = (document.getElementById('pdfOllamaUrl').value || '').trim();
+  const model  = (document.getElementById('pdfOllamaModel').value || '').trim();
+  const result = document.getElementById('pdfOllamaTestResult');
+  result.textContent = '연결 확인 중…';
+  result.style.color = 'var(--ink-faint)';
   try {
-    const match = rawText.match(/\[[\s\S]*\]/);
-    const parsed = JSON.parse(match ? match[0] : '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
+    const resp = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const models = (data.models || []).map(m => m.name);
+    const found  = models.some(m => m.startsWith(model.split(':')[0]));
+    result.textContent = found
+      ? `✓ 연결됨 · ${model} 사용 가능`
+      : `연결됨, ${model} 없음 → ollama pull ${model}`;
+    result.style.color = found ? 'var(--success)' : 'var(--warning)';
+  } catch (e) {
+    result.textContent = `✗ 실패: ${e.message}`;
+    result.style.color = 'var(--danger)';
+  }
 }
 
 async function pdfRunClaudeDetect() {
-  const apiKey = document.getElementById('pdfClaudeApiKey').value.trim();
-  const model  = document.getElementById('pdfClaudeModel').value;
-  const ratio  = parseInt(document.getElementById('pdfClaudeRatio').value) / 100;
-  const status = document.getElementById('pdfClaudeStatus');
+  const provider = document.getElementById('pdfAiProvider').value;
+  const ratio    = parseInt(document.getElementById('pdfClaudeRatio').value) / 100;
+  const status   = document.getElementById('pdfClaudeStatus');
 
-  if (!apiKey) { showToast('API 키를 입력하세요'); return; }
   if (!pdfState.pages.length) { showToast('먼저 PDF를 로드하고 오류 검출을 실행하세요'); return; }
 
-  localStorage.setItem('hwpx_claude_api_key', apiKey);
+  let apiCallFn;
+  if (provider === 'claude') {
+    const apiKey = document.getElementById('pdfClaudeApiKey').value.trim();
+    const model  = document.getElementById('pdfClaudeModel').value;
+    if (!apiKey) { showToast('API 키를 입력하세요'); return; }
+    localStorage.setItem('hwpx_claude_api_key', apiKey);
+    apiCallFn = text => pdfCallClaudeApi(apiKey, model, text);
+  } else {
+    const baseUrl = (document.getElementById('pdfOllamaUrl').value || '').trim() || 'http://localhost:11434';
+    const model   = (document.getElementById('pdfOllamaModel').value || '').trim() || 'qwen2.5:7b';
+    localStorage.setItem('hwpx_ollama_url', baseUrl);
+    localStorage.setItem('hwpx_ollama_model', model);
+    apiCallFn = text => pdfCallOllamaApi(baseUrl, model, text);
+  }
 
   const btn = document.getElementById('pdfClaudeBtn');
   btn.disabled = true;
@@ -5393,14 +5479,14 @@ async function pdfRunClaudeDetect() {
   const allRaw = [];
   const pages  = pdfState.pages;
   let processed = 0;
-  const CONCURRENCY = 3;
+  const CONCURRENCY = provider === 'ollama' ? 1 : 3; // Ollama는 순차 처리
 
   const queue = [...pages];
   async function processOne() {
     if (!queue.length) return;
     const page = queue.shift();
     try {
-      const corrections = await pdfCallClaudeApi(apiKey, model, page.text);
+      const corrections = await apiCallFn(page.text);
       for (const c of corrections) allRaw.push({ pageIndex: page.index, correction: c });
     } catch (_) { /* 개별 페이지 실패는 무시 */ }
     processed++;
@@ -6091,7 +6177,7 @@ document.getElementById('pdfDeselectAllBtn').addEventListener('click', async () 
 
 document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
 
-// ── Claude AI 교정 UI 핸들러 ──────────────────────────────────
+// ── AI 교정 UI 핸들러 ────────────────────────────────────────
 document.getElementById('pdfClaudeRatio').addEventListener('input', function () {
   document.getElementById('pdfClaudeRatioVal').textContent = this.value + '%';
 });
@@ -6099,12 +6185,24 @@ document.getElementById('pdfClaudeKeyToggle').addEventListener('click', () => {
   const inp = document.getElementById('pdfClaudeApiKey');
   inp.type = inp.type === 'password' ? 'text' : 'password';
 });
+document.getElementById('pdfOllamaTestBtn').addEventListener('click', pdfTestOllamaConnection);
 document.getElementById('pdfClaudeBtn').addEventListener('click', pdfRunClaudeDetect);
 
-// localStorage에 저장된 API 키 복원
+// 제공자 전환 시 설정 패널 토글
+document.getElementById('pdfAiProvider').addEventListener('change', function () {
+  const isOllama = this.value === 'ollama';
+  document.getElementById('pdfAiOllamaOpts').style.display = isOllama ? '' : 'none';
+  document.getElementById('pdfAiClaudeOpts').style.display = isOllama ? 'none' : '';
+});
+
+// localStorage 저장값 복원
 (function () {
-  const saved = localStorage.getItem('hwpx_claude_api_key');
-  if (saved) document.getElementById('pdfClaudeApiKey').value = saved;
+  const key   = localStorage.getItem('hwpx_claude_api_key');
+  const oUrl  = localStorage.getItem('hwpx_ollama_url');
+  const oMod  = localStorage.getItem('hwpx_ollama_model');
+  if (key)  document.getElementById('pdfClaudeApiKey').value  = key;
+  if (oUrl) document.getElementById('pdfOllamaUrl').value     = oUrl;
+  if (oMod) document.getElementById('pdfOllamaModel').value   = oMod;
 })();
 
 // ── 모드 전환 ─────────────────────────────────────────────
