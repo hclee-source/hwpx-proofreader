@@ -1579,6 +1579,13 @@
             <div class="jamo-toggle-desc">'프로토콜 이라고' 처럼 조사 앞에 잘못 붙은 공백을 감지합니다</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="colonSpaceToggle">
+          <input type="checkbox" id="colonSpaceToggle">
+          <div>
+            <div class="jamo-toggle-text">콜론 뒤 공백 자동 검출</div>
+            <div class="jamo-toggle-desc">'항목:내용' → '항목: 내용' (시간·비율·URL 제외)</div>
+          </div>
+        </label>
         <div style="font-size:13px; color:var(--ink-muted); margin-bottom:10px;" id="ruleCountInfo"></div>
         <div class="actions">
           <button class="btn btn-primary" id="analyzeBtn" disabled>⚡ 오류 검출 시작</button>
@@ -1927,6 +1934,13 @@
             <div class="jamo-toggle-desc">각 파일에서 조사 앞 잘못된 공백도 함께 교정합니다</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="batchColonToggle">
+          <input type="checkbox" id="batchColonToggle">
+          <div>
+            <div class="jamo-toggle-text">콜론 뒤 공백 자동 검출</div>
+            <div class="jamo-toggle-desc">각 파일에서 콜론 뒤 공백 없는 패턴도 함께 교정합니다</div>
+          </div>
+        </label>
         <label class="jamo-toggle-wrap" for="batchFmtToggle">
           <input type="checkbox" id="batchFmtToggle">
           <div>
@@ -1997,6 +2011,10 @@
           <span style="font-size:12px;color:var(--ink-soft);">조사 앞 공백 검출</span>
           <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">PDF 오탐 주의 — 신뢰도 ≤50% 자동 적용</div>
         </div>
+      </label>
+      <label class="jamo-toggle-wrap" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseColon" style="margin-top:2px;">
+        <span style="font-size:12px;color:var(--ink-soft);">콜론 뒤 공백 검출 (시간·비율·URL 제외)</span>
       </label>
     </div>
 
@@ -3433,6 +3451,35 @@ function detectParticleSpacing(text) {
   return issues;
 }
 
+// ========== 콜론 뒤 공백 검출 ==========
+function detectColonSpacing(text) {
+  const issues = [];
+  const re = /:[^\s\n]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const pos = m.index;
+    const before = pos > 0 ? text[pos - 1] : '';
+    const after  = text[pos + 1];
+    if (after === '/')  continue; // :// — URL 프로토콜
+    if (after === ':')  continue; // :: — 이중 콜론
+    if (/\d/.test(before) || /\d/.test(after)) continue; // 10:30, 1:2 — 시간·비율
+    issues.push({
+      ruleId: -4,
+      category: 'spacing',
+      categoryName: '콜론 뒤 공백',
+      position: pos,
+      original: ':' + after,
+      suggestion: ': ' + after,
+      confidence: 0.85,
+      contextBefore: text.substring(Math.max(0, pos - 10), pos).replace(/\x01/g, ''),
+      contextAfter:  text.substring(pos + 2, pos + 12).replace(/\x01/g, ''),
+      selected: true,
+      description: '콜론 뒤 공백 없음',
+    });
+  }
+  return issues;
+}
+
 // ========== 오류 검출 ==========
 const HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph";
 const CAT_NAMES = { spelling: '맞춤법', spacing: '띄어쓰기', punct: '문장부호', terminology: '용어 일관성', custom: '기타' };
@@ -3681,6 +3728,9 @@ analyzeBtn.addEventListener('click', async () => {
     }
     if (document.getElementById('particleDetectToggle').checked) {
       sectionIssues.push(...detectParticleSpacing(parsed.originalText));
+    }
+    if (document.getElementById('colonSpaceToggle').checked) {
+      sectionIssues.push(...detectColonSpacing(parsed.originalText));
     }
     sectionIssues.forEach((issue, idx) => {
       issue.sectionName = name;
@@ -4606,9 +4656,10 @@ async function batchRun() {
   if (batchState.files.length === 0) return;
   const useJamo     = document.getElementById('batchJamoToggle').checked;
   const useParticle = document.getElementById('batchParticleToggle').checked;
+  const useColon    = document.getElementById('batchColonToggle').checked;
   const useFmt      = document.getElementById('batchFmtToggle').checked;
 
-  if (!useFmt && state.rules.length === 0) {
+  if (!useFmt && state.rules.length === 0 && !useJamo && !useParticle && !useColon) {
     showToast('규칙이 없고 서식 적용도 꺼져 있습니다. 처리할 내용이 없습니다.');
     return;
   }
@@ -4637,6 +4688,7 @@ async function batchRun() {
           let issues = detectIssuesInText(parsed.originalText);
           if (useJamo)     issues = issues.concat(detectJamoSeparation(parsed.originalText));
           if (useParticle) issues = issues.concat(detectParticleSpacing(parsed.originalText));
+          if (useColon)    issues = issues.concat(detectColonSpacing(parsed.originalText));
           issues.sort((a, b) => b.position - a.position);
           issues.forEach(iss => applyCorrection(parsed, iss.position, iss.original.length, iss.suggestion));
           zip.file(secName, new XMLSerializer().serializeToString(parsed.doc));
@@ -5625,6 +5677,7 @@ function toCatName(issue) {
   if (issue.ruleId === -1)  return '자모분리';
   if (issue.ruleId === -2)  return '조사공백';
   if (issue.ruleId === -3)  return '이중공백';
+  if (issue.ruleId === -4)  return '콜론 뒤 공백';
   if (issue.categoryName)   return issue.categoryName;
   return PDF_CAT_NAME[issue.category] || '기타';
 }
@@ -5770,6 +5823,7 @@ function mapCharRangeToWords(start, end, wordSpans) {
 function pdfDetectAll() {
   const useJamo     = document.getElementById('pdfUseJamo').checked;
   const useParticle = document.getElementById('pdfUseParticle').checked;
+  const useColon    = document.getElementById('pdfUseColon').checked;
   const all = [];
 
   for (const page of pdfState.pages) {
@@ -5780,6 +5834,7 @@ function pdfDetectAll() {
     let raw = detectIssuesInText(maskedText);
     if (useParticle) raw = raw.concat(detectParticleSpacing(maskedText));
     if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text)); // 자모는 원문 사용
+    if (useColon)    raw = raw.concat(detectColonSpacing(maskedText));
 
     // 마스킹된 영역(\x00)에 걸쳐있는 이슈 제거 + 원문 텍스트로 original 복원
     raw = raw.filter(issue => {
