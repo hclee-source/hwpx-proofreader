@@ -2838,7 +2838,7 @@ function renderExceptionList() {
   list.innerHTML = state.exceptions.map(ex => `
     <span style="display:inline-flex; align-items:center; gap:4px; background:var(--surface-alt); border:1px solid var(--line); border-radius:20px; padding:3px 10px; font-size:13px;">
       ${escapeHtml(ex)}
-      <button onclick="removeException(${JSON.stringify(ex)})" style="background:none; border:none; cursor:pointer; color:var(--gray-400); font-size:14px; padding:0 2px; line-height:1; transition:color .15s;" onmouseover="this.style.color='#d70015'" onmouseout="this.style.color='var(--gray-400)'">×</button>
+      <button class="ex-remove" data-word="${escapeHtml(ex)}" style="background:none; border:none; cursor:pointer; color:var(--gray-400); font-size:14px; padding:0 2px; line-height:1; transition:color .15s;" onmouseover="this.style.color='#d70015'" onmouseout="this.style.color='var(--gray-400)'">×</button>
     </span>
   `).join('');
 }
@@ -2848,6 +2848,10 @@ function removeException(word) {
   saveExceptions();
   renderExceptionList();
 }
+
+document.getElementById('exceptionList').addEventListener('click', e => {
+  if (e.target.classList.contains('ex-remove')) removeException(e.target.dataset.word);
+});
 
 // ========== 탭 네비게이션 ==========
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -3134,13 +3138,13 @@ document.getElementById('exportHtmlBtn').addEventListener('click', () => {
     '\n  // === 공유용 내장 규칙 — 자동 생성 (파일 열 때 한 번만 실행) ===\n' +
     '  (function(){\n' +
     '    if(!localStorage.getItem(\'hwpx_rules\')){\n' +
-    '      localStorage.setItem(\'hwpx_rules\',' + JSON.stringify(rulesJson) + ');\n' +
+    '      localStorage.setItem(\'hwpx_rules\',' + JSON.stringify(rulesJson).replace(/</g, '\\u003c') + ');\n' +
     '    }\n' +
     '  })();\n';
 
   // 현재 문서 HTML을 문자열로 얻어서 loadRules() 호출 직전에 코드 주입
   let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-  html = html.replace(/(\s*loadRules\(\);)/, injected + '$1');
+  html = html.replace(/(\s*loadRules\(\);)/, (m) => injected + m);
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const date = new Date().toISOString().slice(0, 10);
@@ -3472,7 +3476,8 @@ function detectIssuesInText(text) {
               continue;
             }
           }
-          const suggestion = matched.replace(new RegExp(rule.original, rule.flags || 'i'), rule.replacement);
+          const sFlags = (rule.flags || 'i').replace('g', '');
+          const suggestion = matched.replace(new RegExp(rule.original, sFlags), rule.replacement);
           if (wouldCreateParticleError(suggestion, text, m.index, matched.length)) {
             if (m.index === regex.lastIndex) regex.lastIndex++;
             continue;
@@ -4765,7 +4770,7 @@ function ppAddCharPrsToHeader(headerXml) {
 
   // 현재 파일의 최대 charPr ID 계산 → 원본 charPr를 덮어쓰지 않도록 새 ID 할당
   const existingIds = [...headerXml.matchAll(/<hh:charPr[\s>][^>]*\bid="(\d+)"/g)].map(m => +m[1]);
-  let nextId = Math.max(...existingIds, -1) + 1;
+  let nextId = existingIds.reduce((a, b) => Math.max(a, b), -1) + 1;
   const idMap = {};  // lv.id → 실제 할당된 charPr ID
 
   // 기준 charPr 찾기 (id="14" 우선, 없으면 첫 번째)
@@ -5393,11 +5398,18 @@ const AI_PROOFREAD_PROMPT =
   '텍스트:\n';
 
 function parseAiJson(rawText) {
-  try {
-    const match = rawText.match(/\[[\s\S]*\]/);
-    const parsed = JSON.parse(match ? match[0] : '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
+  let s = rawText.replace(/```json\s*|```/g, '').trim();
+  const first = s.indexOf('[');
+  if (first === -1) return [];
+  let depth = 0;
+  for (let i = first; i < s.length; i++) {
+    if (s[i] === '[') depth++;
+    else if (s[i] === ']' && --depth === 0) {
+      try { const p = JSON.parse(s.slice(first, i + 1)); return Array.isArray(p) ? p : []; }
+      catch { return []; }
+    }
+  }
+  return [];
 }
 
 async function pdfCallClaudeApi(apiKey, model, text) {
@@ -5545,7 +5557,7 @@ async function pdfRunClaudeDetect() {
     // 기존 AI 교정 항목 제거 후 새로 추가
     pdfState.issues = pdfState.issues.filter(x => x.ruleId !== -99);
     const baseId = pdfState.issues.length
-      ? Math.max(...pdfState.issues.map(x => x._id)) + 1 : 0;
+      ? pdfState.issues.reduce((a, x) => Math.max(a, x._id), -1) + 1 : 0;
     let added = 0;
 
     for (const { pageIndex, correction } of selected) {
@@ -6099,7 +6111,8 @@ async function pdfExportAnnotated() {
         if (arr && typeof arr.push === 'function') {
           arr.push(annotRef);
         } else {
-          page.node.set(annotsKey, pdfDoc.context.obj([annotRef]));
+          const existingRefs = (arr && typeof arr.asArray === 'function') ? arr.asArray() : [];
+          page.node.set(annotsKey, pdfDoc.context.obj([...existingRefs, annotRef]));
         }
       }
     }
