@@ -5335,7 +5335,9 @@ async function pdfExtract(file) {
     const pageH = vp1.height;
 
     // 텍스트 추출 (이미지 렌더링 없음)
-    const tc = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+    // disableCombineTextItems:true → Hancom PDF 등에서 한글 1글자 = 1 item 반환
+    // 각 item의 transform[4]가 PDF 직접 x좌표이므로 보간 불필요 (pinpoint 정확도)
+    const tc = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: true });
     const wordList = [];
     const spans    = [];
     const charPos  = []; // charPos[textOffset] = {x0,x1,y0,y1} | null(공백·줄바꿈)
@@ -5348,8 +5350,11 @@ async function pdfExtract(file) {
       const str    = item.str;
       const x0_pdf = item.transform[4];
       const y_pdf  = item.transform[5];
-      const w_pdf  = Math.abs(item.width  || 0);
       const h_pdf  = Math.abs(item.height || 10);
+      // width=0 안전장치: 폰트 높이 기준 추정값 사용
+      const w_pdf_raw = Math.abs(item.width || 0);
+      const w_pdf = w_pdf_raw > 0.1 ? w_pdf_raw
+        : str.length * h_pdf * (/[가-힣]/.test(str[0]) ? 0.95 : 0.55);
       const y0 = pageH - (y_pdf + h_pdf);
       const y1 = pageH - y_pdf;
 
@@ -5359,11 +5364,17 @@ async function pdfExtract(file) {
         if (dy > 3 || prevItem.hasEOL) {
           sep = '\n';
         } else {
-          const gap = x0_pdf - (prevItem.transform[4] + Math.abs(prevItem.width || 0));
-          // ')' 뒤 한글이 오는 경우 폰트 메트릭 아티팩트로 인한 가짜 공백을 막기 위해 임계값 상향
+          // 이전 item 실제 폭: width=0인 경우 h 기준 추정
+          const prevW = Math.abs(prevItem.width || 0) > 0.1
+            ? Math.abs(prevItem.width)
+            : prevItem.str.length * Math.abs(prevItem.height || 10)
+              * (/[가-힣]/.test(prevItem.str[0]) ? 0.95 : 0.55);
+          const gap = x0_pdf - (prevItem.transform[4] + prevW);
+          const prevH           = Math.abs(prevItem.height || 10);
           const prevEndsParen   = prevItem.str[prevItem.str.length - 1] === ')';
           const curStartsKorean = /[가-힣]/.test(str[0]);
-          const gapThreshold    = (prevEndsParen && curStartsKorean) ? 3 : 1;
+          // ')' 뒤 한글: 3pt / 그 외: 폰트 높이의 15% (단어 간격 vs 자간 자동 조정)
+          const gapThreshold = (prevEndsParen && curStartsKorean) ? 3 : Math.max(1, prevH * 0.15);
           if (str[0] !== ' ' && prevItem.str[prevItem.str.length - 1] !== ' ' && gap > gapThreshold)
             sep = ' ';
         }
@@ -5706,19 +5717,37 @@ async function pdfExportAnnotated() {
       // 주석 내용: 수정 제안만 (없으면 원문)
       const contents = issue.suggestion || issue.original;
 
-      // 단어 박스들 → QuadPoints + Rect 계산
-      const words = issue.word_indices.map(wi => pageData.words[wi]).filter(Boolean);
-      if (!words.length) continue;
+      // charPos 기반 QuadPoints + Rect 계산 (글자 단위 정확도)
+      const start = issue._pos;
+      const end   = start != null ? start + (issue._len || 0) : -1;
+      if (start == null || !pageData.charPos) continue;
+
+      // y-라인별로 묶어 QuadPoint 사각형 생성 (다중 줄 지원)
+      const lineMap = new Map();
+      for (let k = start; k < end && k < pageData.charPos.length; k++) {
+        const cp = pageData.charPos[k];
+        if (!cp) continue;
+        const yKey = Math.round(cp.y0 * 4);
+        if (!lineMap.has(yKey)) lineMap.set(yKey, { x0: cp.x0, x1: cp.x1, y0: cp.y0, y1: cp.y1 });
+        else {
+          const r = lineMap.get(yKey);
+          if (cp.x0 < r.x0) r.x0 = cp.x0;
+          if (cp.x1 > r.x1) r.x1 = cp.x1;
+          if (cp.y0 < r.y0) r.y0 = cp.y0;
+          if (cp.y1 > r.y1) r.y1 = cp.y1;
+        }
+      }
+      if (!lineMap.size) continue;
 
       const quadPts = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-      for (const w of words) {
+      for (const r of lineMap.values()) {
         // 저장 좌표: top-left origin → PDF 좌표: bottom-left origin
-        const x0      = w.x0;
-        const x1      = w.x1;
-        const yTop    = pageH - w.y0; // 텍스트 상단 (PDF: 큰 y)
-        const yBottom = pageH - w.y1; // 텍스트 하단 (PDF: 작은 y)
+        const x0      = r.x0;
+        const x1      = r.x1;
+        const yTop    = pageH - r.y0; // 텍스트 상단 (PDF: 큰 y)
+        const yBottom = pageH - r.y1; // 텍스트 하단 (PDF: 작은 y)
 
         // QuadPoints 순서: upper-left, upper-right, lower-left, lower-right
         quadPts.push(x0, yTop, x1, yTop, x0, yBottom, x1, yBottom);
