@@ -3462,6 +3462,7 @@ function detectColonSpacing(text) {
     const after  = text[pos + 1];
     if (after === '/')  continue; // :// — URL 프로토콜
     if (after === ':')  continue; // :: — 이중 콜론
+    if (/[\x00\x01]/.test(after)) continue; // 문단 구분자·마스킹 문자 → XML 오염 방지
     if (/\d/.test(before) || /\d/.test(after)) continue; // 10:30, 1:2 — 시간·비율
     issues.push({
       ruleId: -4,
@@ -3732,11 +3733,16 @@ analyzeBtn.addEventListener('click', async () => {
     if (document.getElementById('colonSpaceToggle').checked) {
       sectionIssues.push(...detectColonSpacing(parsed.originalText));
     }
-    sectionIssues.forEach((issue, idx) => {
+    // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거
+    const safeIssues = sectionIssues.filter(iss => {
+      const span = parsed.originalText.slice(iss.position, iss.position + iss.original.length);
+      return !span.includes('\x01');
+    });
+    safeIssues.forEach((issue, idx) => {
       issue.sectionName = name;
       issue.globalId = allIssues.length + idx;
     });
-    allIssues.push(...sectionIssues);
+    allIssues.push(...safeIssues);
   }
 
   state.issues = allIssues;
@@ -4680,7 +4686,7 @@ async function batchRun() {
       // 교정 적용
       const secNames = Object.keys(zip.files).filter(n => /Contents\/section\d+\.xml$/.test(n));
       let totalFixed = 0;
-      if (state.rules.length > 0 || useJamo || useParticle) {
+      if (state.rules.length > 0 || useJamo || useParticle || useColon) {
         for (const secName of secNames) {
           const buf = await zip.file(secName).async('arraybuffer');
           const xmlStr = new TextDecoder('utf-8').decode(buf);
@@ -4689,6 +4695,8 @@ async function batchRun() {
           if (useJamo)     issues = issues.concat(detectJamoSeparation(parsed.originalText));
           if (useParticle) issues = issues.concat(detectParticleSpacing(parsed.originalText));
           if (useColon)    issues = issues.concat(detectColonSpacing(parsed.originalText));
+          // \x01(문단 구분자)에 걸친 이슈 제거 — XML 오염 방지
+          issues = issues.filter(iss => !parsed.originalText.slice(iss.position, iss.position + iss.original.length).includes('\x01'));
           issues.sort((a, b) => b.position - a.position);
           issues.forEach(iss => applyCorrection(parsed, iss.position, iss.original.length, iss.suggestion));
           zip.file(secName, new XMLSerializer().serializeToString(parsed.doc));
