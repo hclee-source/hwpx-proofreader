@@ -5711,11 +5711,15 @@ async function pdfExportAnnotated() {
       const page     = pdfPages[issue.page];
       const pageData = pdfState.pages[issue.page];
       if (!page || !pageData) continue;
-      const { height: pageH } = page.getSize();
+      // charPos 계산 시 사용한 pageH와 반드시 일치해야 역변환이 정확함
+      const pageH = pageData._vp1h;
+      if (!pageH) continue;
       const [cr, cg, cb] = ANNOT_COLORS[issue.backendCat] || ANNOT_DEFAULT;
 
-      // 주석 내용: 수정 제안만 (없으면 원문)
-      const contents = issue.suggestion || issue.original;
+      // 주석 내용: "원문 → 수정안" (조판사가 무엇을 어떻게 바꿀지 한눈에 파악)
+      const contents = issue.suggestion
+        ? issue.original.trim() + ' → ' + issue.suggestion.trim()
+        : '[' + issue.categoryName + '] ' + issue.original.trim();
 
       // charPos 기반 QuadPoints + Rect 계산 (글자 단위 정확도)
       const start = issue._pos;
