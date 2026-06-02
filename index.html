@@ -2147,6 +2147,7 @@
       <!-- 다운로드 -->
       <div class="actions" style="margin-top:16px;">
         <button class="btn btn-primary" id="pdfDownloadBtn" disabled>⬇ 주석 PDF 다운로드</button>
+        <button class="btn btn-secondary" id="pdfReportBtn" disabled>📄 리포트 다운로드</button>
         <span style="font-size:12px;color:var(--ink-muted);" id="pdfDownloadNote"></span>
       </div>
 
@@ -5948,6 +5949,7 @@ function pdfRenderIssueList() {
   document.getElementById('pdfIssueCountBadge').textContent = selected + '/' + total + '개';
   const dlBtn = document.getElementById('pdfDownloadBtn');
   dlBtn.disabled = selected === 0;
+  document.getElementById('pdfReportBtn').disabled = total === 0;
   document.getElementById('pdfDownloadNote').textContent =
     selected > 0 ? selected + '개 항목을 주석으로 삽입합니다' : '';
 
@@ -6203,6 +6205,81 @@ document.getElementById('pdfDeselectAllBtn').addEventListener('click', async () 
 });
 
 document.getElementById('pdfDownloadBtn').addEventListener('click', pdfExportAnnotated);
+
+function pdfDownloadReport() {
+  const issues = pdfState.issues;
+  if (!issues.length) { showToast('검출된 항목이 없습니다'); return; }
+
+  const fname   = pdfState.file?.name || 'document.pdf';
+  const now     = new Date().toLocaleString('ko-KR');
+  const total   = issues.length;
+  const selCnt  = issues.filter(x => x._selected).length;
+  const pgCount = pdfState.pages.length;
+
+  const byCat = {};
+  const byPage = {};
+  for (const iss of issues) {
+    byCat[iss.categoryName]  = (byCat[iss.categoryName]  || 0) + 1;
+    byPage[iss.page + 1]     = (byPage[iss.page + 1]     || 0) + 1;
+  }
+
+  const LINE  = '─'.repeat(70);
+  const DLINE = '═'.repeat(70);
+  let r = '';
+
+  r += DLINE + '\n';
+  r += ' PDF 교정 리포트\n';
+  r += DLINE + '\n\n';
+  r += `파일:    ${fname}\n`;
+  r += `생성:    ${now}\n`;
+  r += `페이지:  ${pgCount}쪽\n`;
+  r += `총 검출: ${total}건  (선택됨 ${selCnt}건)\n\n`;
+
+  r += LINE + '\n분류별 분포\n' + LINE + '\n';
+  for (const [cat, cnt] of Object.entries(byCat).sort((a,b) => b[1]-a[1]))
+    r += `  ${cat.padEnd(14)} ${cnt}건\n`;
+
+  const topPages = Object.entries(byPage).sort((a,b) => b[1]-a[1]).slice(0, 10);
+  if (topPages.length) {
+    r += '\n' + LINE + '\n검출 집중 페이지 (상위 10)\n' + LINE + '\n';
+    for (const [pg, cnt] of topPages)
+      r += `  p.${String(pg).padStart(4)}  ${cnt}건\n`;
+  }
+
+  r += '\n' + LINE + '\n상세 내역\n' + LINE + '\n';
+  const sorted = [...issues].sort((a,b) => a.page !== b.page ? a.page - b.page : (a._pos||0) - (b._pos||0));
+
+  let lastPage = -1;
+  sorted.forEach((iss, idx) => {
+    if (iss.page !== lastPage) {
+      r += `\n[ p.${iss.page + 1} ]\n`;
+      lastPage = iss.page;
+    }
+
+    const pageText = pdfState.pages[iss.page]?.text || '';
+    const pos = iss._pos ?? 0;
+    const len = iss._len ?? iss.original.length;
+    const ctxBefore = pageText.slice(Math.max(0, pos - 25), pos).replace(/\n/g, '↵');
+    const ctxAfter  = pageText.slice(pos + len, pos + len + 25).replace(/\n/g, '↵');
+
+    r += `  ${idx + 1}. [${iss.categoryName}] ${iss._selected ? '✓' : '○'}  신뢰도 ${iss.confidence}%\n`;
+    r += `     문맥: …${ctxBefore}【${iss.original}】${ctxAfter}…\n`;
+    if (iss.suggestion)
+      r += `     수정: "${iss.original}" → "${iss.suggestion}"\n`;
+    if (iss.note)
+      r += `     사유: ${iss.note}\n`;
+  });
+
+  r += '\n' + DLINE + '\n';
+  r += `리포트 끝 — 총 ${total}건\n`;
+  r += DLINE + '\n';
+
+  const outName = fname.replace(/\.pdf$/i, '') + '_교정리포트.txt';
+  triggerDownload(new Blob([r], { type: 'text/plain;charset=utf-8' }), outName);
+  showToast('리포트를 다운로드했습니다');
+}
+
+document.getElementById('pdfReportBtn').addEventListener('click', pdfDownloadReport);
 
 // ── AI 교정 UI 핸들러 ────────────────────────────────────────
 document.getElementById('pdfClaudeRatio').addEventListener('input', function () {
