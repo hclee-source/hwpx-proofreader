@@ -5371,10 +5371,16 @@ async function pdfExtract(file) {
               * (/[가-힣]/.test(prevItem.str[0]) ? 0.95 : 0.55);
           const gap = x0_pdf - (prevItem.transform[4] + prevW);
           const prevH           = Math.abs(prevItem.height || 10);
-          const prevEndsParen   = prevItem.str[prevItem.str.length - 1] === ')';
-          const curStartsKorean = /[가-힣]/.test(str[0]);
-          // ')' 뒤 한글: 3pt / 그 외: 폰트 높이의 15% (단어 간격 vs 자간 자동 조정)
-          const gapThreshold = (prevEndsParen && curStartsKorean) ? 3 : Math.max(1, prevH * 0.15);
+          const prevLast        = prevItem.str[prevItem.str.length - 1];
+          const prevEndsParen   = prevLast === ')';
+          const prevEndsKorean  = /[가-힣]/.test(prevLast);
+          const curFirst        = str[0];
+          const curStartsKorean = /[가-힣]/.test(curFirst);
+          const curStartsParen  = curFirst === '(' || curFirst === ')';
+          // 괄호 ↔ 한글 양방향: PDF font metric 아티팩트 방지 위해 3pt 임계값
+          const isParen = (prevEndsParen && curStartsKorean)
+                       || (prevEndsKorean && curStartsParen);
+          const gapThreshold = isParen ? 3 : Math.max(1, prevH * 0.15);
           if (str[0] !== ' ' && prevItem.str[prevItem.str.length - 1] !== ' ' && gap > gapThreshold)
             sep = ' ';
         }
@@ -5480,12 +5486,19 @@ function pdfDetectAll() {
       return !PDF_JOSA_SKIP.has(particle);
     });
 
-    // PDF 전용 필터 3: ')' 직후 조사/공백 오류는 오탐 가능성 극히 높음
-    // "(영문약자)와", "(macOS)가" 등은 PDF 스팬 경계 아티팩트로 공백이 끼어든 것
+    // PDF 전용 필터 3: 괄호 인접 spacing 이슈 전면 제거
+    // "(영문)와", "나)" 같은 패턴은 PDF span 아티팩트 또는 의도된 표기이므로 오탐 처리
     raw = raw.filter(issue => {
       if (issue.category !== 'spacing') return true;
-      if (issue.position === 0) return true;
-      return page.text[issue.position - 1] !== ')';
+      const orig = issue.original;
+      // 원문 자체에 괄호 포함 → 오탐
+      if (orig.includes(')') || orig.includes('(')) return false;
+      // 이슈 바로 앞·뒤 문자가 괄호 → 오탐
+      const pos   = issue.position;
+      const before = pos > 0 ? page.text[pos - 1] : '';
+      const after  = page.text[pos + orig.length] || '';
+      if (before === ')' || before === '(' || after === ')' || after === '(') return false;
+      return true;
     });
 
     // PDF 전용 추가 감지: 이중공백 (실제 오류이지만 기본 감지기가 놓침)
