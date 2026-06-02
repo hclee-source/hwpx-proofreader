@@ -5283,6 +5283,13 @@ function strWidthUpTo(str, end) {
   for (let i = 0; i < end; i++) w += charWidthEst(str[i]);
   return w;
 }
+// 괄호 내부를 \x00으로 마스킹 — 위치 보존, 괄호 기호 자체는 남김
+// "윈도(window)나" → "윈도(\x00\x00\x00\x00\x00\x00)나"
+function maskParensForSpacing(text) {
+  return text.replace(/\(([^)\n\x01]{0,100})\)/g, (m, inner) =>
+    '(' + '\x00'.repeat(inner.length) + ')'
+  );
+}
 
 const pdfState = {
   file: null,
@@ -5465,16 +5472,22 @@ function pdfDetectAll() {
   const all = [];
 
   for (const page of pdfState.pages) {
-    // A: detectIssuesInText는 기존 함수 그대로; position / original.length 사용
-    let raw = detectIssuesInText(page.text);
-    if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text));
-    if (useParticle) raw = raw.concat(detectParticleSpacing(page.text));
+    // 띄어쓰기·조사 규칙 검출 시 괄호 내부를 마스킹하여 오탐 방지
+    // "윈도(window)나" → 마스킹 후 "윈도(■■■■■■)나" 처럼 취급 → "윈도나" 관점으로 검출
+    const maskedText = maskParensForSpacing(page.text);
 
-    // PDF 전용 필터 1: 줄 바꿈(\n) 가로지르는 이슈 제거 (정규식 \s가 \n 매칭)
+    let raw = detectIssuesInText(maskedText);
+    if (useParticle) raw = raw.concat(detectParticleSpacing(maskedText));
+    if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text)); // 자모는 원문 사용
+
+    // 마스킹된 영역(\x00)에 걸쳐있는 이슈 제거 + 원문 텍스트로 original 복원
     raw = raw.filter(issue => {
-      const span = page.text.slice(issue.position, issue.position + issue.original.length);
-      return !span.includes('\n');
-    });
+      const span = maskedText.slice(issue.position, issue.position + issue.original.length);
+      return !span.includes('\x00') && !span.includes('\n');
+    }).map(issue => ({
+      ...issue,
+      original: page.text.slice(issue.position, issue.position + issue.original.length),
+    }));
 
     // PDF 전용 필터 2: 조사공백에서 단음절 고빈도 조사 제외
     // 이/가/는/은/도/만/에/로/의 는 지시어·부사·복합어 첫 글자와 구별 불가 → 오탐률 95%+
@@ -5486,15 +5499,12 @@ function pdfDetectAll() {
       return !PDF_JOSA_SKIP.has(particle);
     });
 
-    // PDF 전용 필터 3: 괄호 인접 spacing 이슈 전면 제거
-    // "(영문)와", "나)" 같은 패턴은 PDF span 아티팩트 또는 의도된 표기이므로 오탐 처리
+    // PDF 전용 필터 3: 괄호 인접 spacing 이슈 전면 제거 (마스킹 후에도 남은 경계 케이스 처리)
     raw = raw.filter(issue => {
       if (issue.category !== 'spacing') return true;
       const orig = issue.original;
-      // 원문 자체에 괄호 포함 → 오탐
       if (orig.includes(')') || orig.includes('(')) return false;
-      // 이슈 바로 앞·뒤 문자가 괄호 → 오탐
-      const pos   = issue.position;
+      const pos    = issue.position;
       const before = pos > 0 ? page.text[pos - 1] : '';
       const after  = page.text[pos + orig.length] || '';
       if (before === ')' || before === '(' || after === ')' || after === '(') return false;
