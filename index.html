@@ -3004,10 +3004,10 @@ function renderRulesTable() {
   const catNames = { spelling: '맞춤법', spacing: '띄어쓰기', punct: '문장부호', terminology: '용어 일관성', custom: '기타' };
   tbody.innerHTML = state.rules.map(rule => `
     <tr>
-      <td><span class="rule-category ${rule.category}">${catNames[rule.category] || rule.category}</span></td>
+      <td><span class="rule-category ${catNames[rule.category] ? rule.category : 'custom'}">${escapeHtml(catNames[rule.category] || rule.category)}</span></td>
       <td><code class="rule-code orig">${escapeHtml(rule.original)}</code>${rule.type === 'regex' ? '<span class="badge-regex">정규식</span>' : ''}${rule.wordBoundary ? '<span class="badge-boundary">경계</span>' : ''}</td>
       <td><code class="rule-code fix">${escapeHtml(rule.replacement)}</code></td>
-      <td style="font-size:12px; color:var(--ink-muted);">${rule.description || '—'}</td>
+      <td style="font-size:12px; color:var(--ink-muted);">${escapeHtml(rule.description || '—')}</td>
       <td style="font-size:12px; font-weight:700; color:var(--ink-muted);">${Math.round(rule.confidence * 100)}%</td>
       <td><div class="td-actions">
         <button class="btn btn-secondary btn-sm" onclick="editRule(${rule.id})">수정</button>
@@ -3037,7 +3037,7 @@ function updateRuleCategoriesSidebar() {
 
   container.innerHTML = Object.entries(byCategory).map(([cat, count]) => `
     <div class="sidebar-cat-item">
-      <span>${catNames[cat] || cat}</span>
+      <span>${escapeHtml(catNames[cat] || cat)}</span>
       <span class="sidebar-cat-count">${count}</span>
     </div>
   `).join('');
@@ -3582,15 +3582,35 @@ function detectIssuesInText(text) {
 
 // ========== 교정 적용 (다중 hp:t 지원) ==========
 // 교정 위치(globalPos)가 여러 hp:t에 걸쳐 있어도 올바르게 DOM 반영
-function applyCorrection(analysis, globalPos, origLen, replText) {
+// 범위가 겹치는 검출 이슈 제거 — 같은 구간에 두 규칙이 매칭되면(예: '에 있어서는'과 '에 있어서')
+// 순차 적용 시 무관한 글자가 삭제되므로, 긴 매칭(같으면 신뢰도 높은 쪽)만 남긴다
+function dedupeOverlappingIssues(issues) {
+  const sorted = issues.slice().sort((a, b) =>
+    a.position - b.position
+    || b.original.length - a.original.length
+    || (b.confidence || 0) - (a.confidence || 0));
+  const kept = [];
+  let lastEnd = -1;
+  for (const iss of sorted) {
+    if (iss.position < lastEnd) continue; // 이미 채택된 이슈와 범위 겹침 → 제외
+    kept.push(iss);
+    lastEnd = iss.position + iss.original.length;
+  }
+  return kept;
+}
+
+function applyCorrection(analysis, globalPos, origLen, replText, expectedText) {
   const para = analysis.paragraphs.find(
     p => globalPos >= p.startInFull && globalPos < p.startInFull + p.text.length
   );
-  if (!para) return;
+  if (!para) return false;
 
   const localPos = globalPos - para.startInFull;
   const localEnd = localPos + origLen;
   const delta    = replText.length - origLen;
+
+  // 적용 전 원본 일치 검증 — 오프셋이 낡았거나(재클릭·겹침 적용) 이미 바뀐 텍스트면 건너뜀
+  if (expectedText != null && para.text.substring(localPos, localEnd) !== expectedText) return false;
 
   let firstIdx = -1, lastIdx = -1;
   for (let i = 0; i < para.frags.length; i++) {
@@ -3598,26 +3618,26 @@ function applyCorrection(analysis, globalPos, origLen, replText) {
     if (f.start + f.len > localPos && firstIdx === -1) firstIdx = i;
     if (f.start < localEnd) lastIdx = i;
   }
-  if (firstIdx === -1) return;
+  if (firstIdx === -1) return false;
 
   const first = para.frags[firstIdx];
   const last  = para.frags[lastIdx];
-  const prefix = first.el.textContent.substring(0, localPos - first.start);
-  const suffix = last.el.textContent.substring(Math.max(0, localEnd - last.start));
+  const prefix = first.node.data.substring(0, localPos - first.start);
+  const suffix = last.node.data.substring(Math.max(0, localEnd - last.start));
 
   if (firstIdx === lastIdx) {
-    first.el.textContent = prefix + replText + suffix;
-    first.len = first.el.textContent.length;
+    first.node.data = prefix + replText + suffix;
+    first.len = first.node.data.length;
   } else {
-    // 여러 hp:t에 걸친 경우: 첫 요소에 교정 결과 삽입, 중간 비우기, 마지막은 suffix만 보존
-    first.el.textContent = prefix + replText;
-    first.len = first.el.textContent.length;
+    // 여러 텍스트 노드에 걸친 경우: 첫 노드에 교정 결과 삽입, 중간 비우기, 마지막은 suffix만 보존
+    first.node.data = prefix + replText;
+    first.len = first.node.data.length;
     for (let i = firstIdx + 1; i < lastIdx; i++) {
-      para.frags[i].el.textContent = '';
+      para.frags[i].node.data = '';
       para.frags[i].len = 0;
     }
-    last.el.textContent = suffix;
-    last.len = last.el.textContent.length;
+    last.node.data = suffix;
+    last.len = last.node.data.length;
     let running = first.start + first.len;
     for (let i = firstIdx + 1; i <= lastIdx; i++) {
       para.frags[i].start = running;
@@ -3630,6 +3650,7 @@ function applyCorrection(analysis, globalPos, origLen, replText) {
   }
   // 문단 text 갱신 (같은 문단에 추가 교정이 있을 경우를 위해)
   para.text = para.text.substring(0, localPos) + replText + para.text.substring(localEnd);
+  return true;
 }
 
 function extractTextFromSection(xmlString) {
@@ -3659,6 +3680,23 @@ function extractTextFromSection(xmlString) {
     fragments.push({ element: allTEls[i], text: allTEls[i].textContent || '' });
   }
 
+  // hp:t의 자식 노드를 분해: 텍스트 노드만 편집 대상 frag로 등록하고,
+  // hp:tab/hp:lineBreak 등 요소 자식은 \x01 구분자로 표시해 보존 + 검출 범위가 넘지 못하게 차단
+  // (기존 el.textContent 방식은 탭·줄바꿈을 무시한 오탐을 만들고, 적용 시 해당 요소를 삭제했음)
+  function appendTFragments(el, frags, paraText) {
+    for (let ni = 0; ni < el.childNodes.length; ni++) {
+      const node = el.childNodes[ni];
+      if (node.nodeType === 3) { // Text
+        if (!node.data) continue;
+        frags.push({ node, start: paraText.length, len: node.data.length });
+        paraText += node.data;
+      } else if (node.nodeType === 1) { // hp:tab, hp:lineBreak, 형광펜 마커 등
+        paraText += '\x01';
+      }
+    }
+    return paraText;
+  }
+
   // ② 문단(hp:p) 단위 구조 구성
   // 각 hp:p 내 hp:t들을 구분자 없이 연결 → 서식 경계를 넘는 패턴도 검출 가능
   // 직계 hp:p 조상 확인으로 표 셀 등 중첩 hp:p의 hp:t 중복 방지
@@ -3682,12 +3720,10 @@ function extractTextFromSection(xmlString) {
       }
       if (anc !== pEl) continue; // 중첩된 다른 hp:p 소속 → 건너뜀
 
-      const text = el.textContent || '';
-      frags.push({ el, start: paraText.length, len: text.length });
-      paraText += text;
+      paraText = appendTFragments(el, frags, paraText);
     }
 
-    if (paraText.length === 0) continue;
+    if (frags.length === 0) continue;
 
     paragraphs.push({ text: paraText, frags, startInFull: globalOffset });
     textParts.push(paraText);
@@ -3697,10 +3733,12 @@ function extractTextFromSection(xmlString) {
   // 문단을 못 찾은 경우(비표준 HWPX) → flat 조각을 개별 문단으로 처리
   if (paragraphs.length === 0 && fragments.length > 0) {
     for (const f of fragments) {
-      if (!f.text) continue;
-      paragraphs.push({ text: f.text, frags: [{ el: f.element, start: 0, len: f.text.length }], startInFull: globalOffset });
-      textParts.push(f.text);
-      globalOffset += f.text.length + 1;
+      const frags = [];
+      const paraText = appendTFragments(f.element, frags, '');
+      if (frags.length === 0) continue;
+      paragraphs.push({ text: paraText, frags, startInFull: globalOffset });
+      textParts.push(paraText);
+      globalOffset += paraText.length + 1;
     }
   }
 
@@ -3734,15 +3772,19 @@ analyzeBtn.addEventListener('click', async () => {
       sectionIssues.push(...detectColonSpacing(parsed.originalText));
     }
     // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거
-    const safeIssues = sectionIssues.filter(iss => {
+    let safeIssues = sectionIssues.filter(iss => {
       const span = parsed.originalText.slice(iss.position, iss.position + iss.original.length);
       return !span.includes('\x01');
     });
+    // 같은 구간에 겹친 매칭은 하나만 남김 (순차 적용 시 텍스트 손상 방지)
+    safeIssues = dedupeOverlappingIssues(safeIssues);
     safeIssues.forEach((issue, idx) => {
       issue.sectionName = name;
       issue.globalId = allIssues.length + idx;
     });
     allIssues.push(...safeIssues);
+    // 진행바 리페인트 기회 제공 (동기 루프면 UI가 얼어붙음)
+    await new Promise(r => setTimeout(r, 0));
   }
 
   state.issues = allIssues;
@@ -3916,16 +3958,21 @@ document.getElementById('applyBtn').addEventListener('click', async () => {
       if (!bySec[issue.sectionName]) bySec[issue.sectionName] = [];
       bySec[issue.sectionName].push(issue);
     });
+    let appliedCount = 0, skippedCount = 0;
     for (const sectionName in bySec) {
       const analysis = state.sectionAnalysis[sectionName];
       snapshot[sectionName] = { xml: new XMLSerializer().serializeToString(analysis.doc), originalText: analysis.originalText };
       let text = analysis.originalText;
       bySec[sectionName].slice().sort((a, b) => b.position - a.position).forEach(issue => {
-        applyCorrection(analysis, issue.position, issue.original.length, issue.suggestion);
+        // 원본 불일치(재클릭·낡은 오프셋)면 적용하지 않고 건너뜀
+        if (!applyCorrection(analysis, issue.position, issue.original.length, issue.suggestion, issue.original)) { skippedCount++; return; }
+        appliedCount++;
         text = text.substring(0, issue.position) + issue.suggestion + text.substring(issue.position + issue.original.length);
       });
       analysis.originalText = text;
-      state.zip.file(sectionName, new XMLSerializer().serializeToString(analysis.doc));
+      const serialized = new XMLSerializer().serializeToString(analysis.doc);
+      state.zip.file(sectionName, serialized);
+      state.sectionFiles[sectionName] = serialized; // 재분석 시 교정 반영 상태에서 시작하도록 동기화
     }
     setProgress(55);
 
@@ -3953,17 +4000,21 @@ document.getElementById('applyBtn').addEventListener('click', async () => {
     setProgress(100);
     const suffix = fmtApplied ? '_교정+서식' : '_교정';
     triggerDownload(blob, state.file.name.replace(/\.hwpx$/i, '') + suffix + '.hwpx');
-    showToast(fmtApplied ? `교정 ${selected.length}건 + 서식 적용 완료` : `교정 ${selected.length}건 적용 완료`, 3000);
+    const skipNote = skippedCount > 0 ? ` (${skippedCount}건은 이미 적용됨/불일치로 건너뜀)` : '';
+    showToast((fmtApplied ? `교정 ${appliedCount}건 + 서식 적용 완료` : `교정 ${appliedCount}건 적용 완료`) + skipNote, 3500);
 
-    state.undoStack.push(snapshot);
-    if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
-    const undoBtn = document.getElementById('undoBtn');
-    undoBtn.classList.remove('hidden');
-    undoBtn.textContent = `↩ 교정 취소 (${state.undoStack.length}단계)`;
+    if (appliedCount > 0) {
+      state.undoStack.push(snapshot);
+      if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
+      const undoBtn = document.getElementById('undoBtn');
+      undoBtn.classList.remove('hidden');
+      undoBtn.textContent = `↩ 교정 취소 (${state.undoStack.length}단계)`;
+    }
   } catch (err) {
     showToast('다운로드 실패: ' + err.message);
     console.error(err);
   } finally {
+    btn.disabled = false; // 재클릭해도 원본 일치 검증이 이중 적용을 차단함
     updateSelectedCount();
   }
 });
@@ -4001,6 +4052,7 @@ document.getElementById('finalDownloadBtn').addEventListener('click', async () =
 
   try {
     let anyChange = false;
+    let appliedCount = 0, skippedCount = 0;
     const selected = state.issues.filter(i => i.selected);
 
     // ① 교정 적용
@@ -4016,17 +4068,23 @@ document.getElementById('finalDownloadBtn').addEventListener('click', async () =
         snapshot[sectionName] = { xml: new XMLSerializer().serializeToString(analysis.doc), originalText: analysis.originalText };
         let text = analysis.originalText;
         bySec[sectionName].slice().sort((a, b) => b.position - a.position).forEach(issue => {
-          applyCorrection(analysis, issue.position, issue.original.length, issue.suggestion);
+          // 원본 불일치(재클릭·낡은 오프셋)면 적용하지 않고 건너뜀
+          if (!applyCorrection(analysis, issue.position, issue.original.length, issue.suggestion, issue.original)) { skippedCount++; return; }
+          appliedCount++;
           text = text.substring(0, issue.position) + issue.suggestion + text.substring(issue.position + issue.original.length);
         });
         analysis.originalText = text;
-        state.zip.file(sectionName, new XMLSerializer().serializeToString(analysis.doc));
+        const serialized = new XMLSerializer().serializeToString(analysis.doc);
+        state.zip.file(sectionName, serialized);
+        state.sectionFiles[sectionName] = serialized; // 재분석 시 교정 반영 상태에서 시작하도록 동기화
       }
-      state.undoStack.push(snapshot);
-      if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
-      const undoBtn = document.getElementById('undoBtn');
-      undoBtn.classList.remove('hidden');
-      undoBtn.textContent = `↩ 교정 취소 (${state.undoStack.length}단계)`;
+      if (appliedCount > 0) {
+        state.undoStack.push(snapshot);
+        if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
+        const undoBtn = document.getElementById('undoBtn');
+        undoBtn.classList.remove('hidden');
+        undoBtn.textContent = `↩ 교정 취소 (${state.undoStack.length}단계)`;
+      }
       anyChange = true;
     }
     setProgress(30);
@@ -4104,7 +4162,12 @@ document.getElementById('finalDownloadBtn').addEventListener('click', async () =
     if (ppApplied) parts.push('전처리');
     const suffix = '_' + (parts.length ? parts.join('+') : '처리');
     triggerDownload(blob, state.file.name.replace(/\.hwpx$/i, '') + suffix + '.hwpx');
-    showToast(parts.join(' + ') + ' 적용 완료', 3000);
+    const msgParts = [];
+    if (selected.length > 0) msgParts.push(`교정 ${appliedCount}건`);
+    if (fmtApplied) msgParts.push('서식');
+    if (ppApplied) msgParts.push('전처리');
+    const skipNote2 = skippedCount > 0 ? ` (${skippedCount}건은 이미 적용됨/불일치로 건너뜀)` : '';
+    showToast(msgParts.join(' + ') + ' 적용 완료' + skipNote2, 3500);
   } catch (err) {
     showToast('다운로드 실패: ' + err.message);
     console.error(err);
@@ -4275,9 +4338,9 @@ document.addEventListener('keydown', e => {
 // ========== 유틸리티 ==========
 function escapeHtml(str) {
   if (!str) return '';
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
+  return String(str).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
 }
 
 function triggerDownload(blob, filename) {
@@ -4317,6 +4380,7 @@ document.getElementById('undoBtn').addEventListener('click', () => {
     for (const sectionName in snapshot) {
       const snap = snapshot[sectionName];
       state.zip.file(sectionName, snap.xml);
+      state.sectionFiles[sectionName] = snap.xml; // 재분석 기준도 되돌림
       const parsed = extractTextFromSection(snap.xml);
       state.sectionAnalysis[sectionName] = { doc: parsed.doc, paragraphs: parsed.paragraphs, fragments: parsed.fragments, originalText: snap.originalText };
     }
@@ -4331,13 +4395,20 @@ document.getElementById('undoBtn').addEventListener('click', () => {
     let gid = 0;
     for (const sectionName in state.sectionAnalysis) {
       const a = state.sectionAnalysis[sectionName];
-      const sIssues = detectIssuesInText(a.originalText);
+      let sIssues = detectIssuesInText(a.originalText);
       if (document.getElementById('jamoDetectToggle').checked) {
         sIssues.push(...detectJamoSeparation(a.originalText));
       }
       if (document.getElementById('particleDetectToggle').checked) {
         sIssues.push(...detectParticleSpacing(a.originalText));
       }
+      if (document.getElementById('colonSpaceToggle').checked) {
+        sIssues.push(...detectColonSpacing(a.originalText));
+      }
+      // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거 (분석 버튼과 동일 기준)
+      sIssues = sIssues.filter(iss =>
+        !a.originalText.slice(iss.position, iss.position + iss.original.length).includes('\x01'));
+      sIssues = dedupeOverlappingIssues(sIssues);
       sIssues.forEach(iss => { iss.sectionName = sectionName; iss.globalId = gid++; });
       allIssues.push(...sIssues);
     }
@@ -4695,12 +4766,17 @@ async function batchRun() {
           if (useJamo)     issues = issues.concat(detectJamoSeparation(parsed.originalText));
           if (useParticle) issues = issues.concat(detectParticleSpacing(parsed.originalText));
           if (useColon)    issues = issues.concat(detectColonSpacing(parsed.originalText));
-          // \x01(문단 구분자)에 걸친 이슈 제거 — XML 오염 방지
+          // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거
           issues = issues.filter(iss => !parsed.originalText.slice(iss.position, iss.position + iss.original.length).includes('\x01'));
+          // 같은 구간에 겹친 매칭은 하나만 남김 (순차 적용 시 텍스트 손상 방지)
+          issues = dedupeOverlappingIssues(issues);
           issues.sort((a, b) => b.position - a.position);
-          issues.forEach(iss => applyCorrection(parsed, iss.position, iss.original.length, iss.suggestion));
+          let fixed = 0;
+          issues.forEach(iss => {
+            if (applyCorrection(parsed, iss.position, iss.original.length, iss.suggestion, iss.original)) fixed++;
+          });
           zip.file(secName, new XMLSerializer().serializeToString(parsed.doc));
-          totalFixed += issues.length;
+          totalFixed += fixed;
         }
       }
 
@@ -5095,6 +5171,12 @@ document.getElementById('ppApplyBtn').addEventListener('click', async () => {
     let headingIdMap = {};
     if (doHeading) {
       const result = ppAddCharPrsToHeader(headerXml);
+      if (!Object.keys(result.idMap).length) {
+        // 기준 charPr를 못 찾으면 원시 ID로 강행하지 않고 중단 (엉뚱한 서식 적용 방지)
+        ppLog('❌ 중단: header.xml에서 기준 charPr를 찾지 못해 헤딩 서식을 등록할 수 없습니다');
+        showToast('헤딩 적용 실패: header.xml에서 기준 charPr를 찾지 못했습니다');
+        return;
+      }
       headerXml = result.headerXml;
       headingIdMap = result.idMap;
       headerChanged = true;
@@ -5140,7 +5222,11 @@ document.getElementById('ppApplyBtn').addEventListener('click', async () => {
     if (!changed) { ppLog('변경 사항 없음'); showToast('변경 사항이 없습니다'); return; }
 
     ppLog('\n파일 생성 중...');
-    const blob    = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    Object.values(zip.files).forEach(f => {
+      if (!f.dir && f._data && f._data.compressedContent != null && f._data.compressedSize === f._data.uncompressedSize)
+        f.options.compression = 'STORE';
+    });
+    const blob    = await zip.generateAsync({ type: 'blob', mimeType: 'application/hwp+zip', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     const outName = ppState.file.name.replace(/\.hwpx$/i, '') + '_전처리.hwpx';
     triggerDownload(blob, outName);
     ppLog('✅ 완료: ' + outName);
@@ -5410,10 +5496,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const RENDER_ZOOM = 2.0;
 
 // 한글·CJK = 2, ASCII = 1 단위 폭 추정 (혼합 텍스트 x좌표 보간 정확도 향상)
+// transform 스케일 성분으로 폰트 크기(pt) 추정 — 고정값 10은 최종 폴백
 function fontSizeOf(item) {
   return Math.abs(item.height) ||
          Math.hypot(item.transform[2], item.transform[3]) || 10;
 }
+// width=0 방어용 — item의 실제 advance 추정 (current 또는 prev item 모두 사용)
 function itemWidth(item) {
   const w = Math.abs(item.width || 0);
   if (w > 0.1) return w;
@@ -5484,7 +5572,10 @@ async function pdfCallClaudeApi(apiKey, model, text) {
     body: JSON.stringify({
       model,
       max_tokens: 1500,
-      messages: [{ role: 'user', content: AI_PROOFREAD_PROMPT + text.slice(0, 3000) }],
+      messages: [{
+        role: 'user',
+        content: AI_PROOFREAD_PROMPT + text.slice(0, 3000),
+      }],
     }),
   });
 
@@ -5493,7 +5584,8 @@ async function pdfCallClaudeApi(apiKey, model, text) {
     throw new Error(err.error?.message || `Claude API 오류 ${resp.status}`);
   }
   const data = await resp.json();
-  return parseAiJson(data.content?.[0]?.text || '[]');
+  const rawText = data.content?.[0]?.text || '[]';
+  return parseAiJson(rawText);
 }
 
 async function pdfCallOllamaApi(baseUrl, model, text) {
@@ -5594,7 +5686,7 @@ async function pdfRunClaudeDetect() {
       const corrections = await apiCallFn(page.text);
       for (const c of corrections) allRaw.push({ pageIndex: page.index, correction: c });
     } catch (e) {
-      if (!firstError) firstError = e;
+      if (!firstError) firstError = e; // 첫 번째 에러만 기록
     }
     processed++;
     pdfSetProgress(Math.round((processed / pages.length) * 85) + 5);
@@ -5605,6 +5697,7 @@ async function pdfRunClaudeDetect() {
   try {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages.length) }, processOne));
 
+    // 모든 페이지가 실패한 경우 에러 표시
     if (allRaw.length === 0 && firstError) throw firstError;
 
     // 신뢰도 내림차순 → 상위 ratio% 선택
@@ -5734,8 +5827,8 @@ async function pdfExtract(file) {
       const x0_pdf = item.transform[4];
       const y_pdf  = item.transform[5];
       const fs     = fontSizeOf(item);
-      const h_pdf  = Math.abs(item.height || fs);
-      const w_pdf  = itemWidth(item);
+      const h_pdf  = Math.abs(item.height || fs);  // height 누락 방어
+      const w_pdf  = itemWidth(item);              // width=0 CJK/Latin 폴백
       const y0 = pageH - (y_pdf + h_pdf);
       const y1 = pageH - y_pdf;
 
@@ -5743,9 +5836,11 @@ async function pdfExtract(file) {
       if (prevItem !== null) {
         const prevFS = fontSizeOf(prevItem);
         const dy     = Math.abs(item.transform[5] - prevItem.transform[5]);
+        // 4.2: hasEOL 최우선 → 없으면 폰트 크기 대비 상대 임계값
         if (prevItem.hasEOL || dy > prevFS * 0.5) {
           sep = '\n';
         } else {
+          // 4.3: advance 대비 gap 비율로 공백 판정 — 고정값·괄호 특수처리 제거
           const prevRight = prevItem.transform[4] + itemWidth(prevItem);
           const gap       = x0_pdf - prevRight;
           const advance   = (Math.abs(prevItem.width || 0) / Math.max(prevItem.str.length, 1))
@@ -6290,6 +6385,7 @@ function pdfDownloadReport() {
   const selCnt  = issues.filter(x => x._selected).length;
   const pgCount = pdfState.pages.length;
 
+  // 분류별 집계
   const byCat = {};
   const byPage = {};
   for (const iss of issues) {
@@ -6297,7 +6393,7 @@ function pdfDownloadReport() {
     byPage[iss.page + 1]     = (byPage[iss.page + 1]     || 0) + 1;
   }
 
-  const LINE  = '─'.repeat(70);
+  const LINE = '─'.repeat(70);
   const DLINE = '═'.repeat(70);
   let r = '';
 
@@ -6309,10 +6405,12 @@ function pdfDownloadReport() {
   r += `페이지:  ${pgCount}쪽\n`;
   r += `총 검출: ${total}건  (선택됨 ${selCnt}건)\n\n`;
 
+  // 분류별
   r += LINE + '\n분류별 분포\n' + LINE + '\n';
   for (const [cat, cnt] of Object.entries(byCat).sort((a,b) => b[1]-a[1]))
     r += `  ${cat.padEnd(14)} ${cnt}건\n`;
 
+  // 페이지별 (검출 많은 순 상위 10)
   const topPages = Object.entries(byPage).sort((a,b) => b[1]-a[1]).slice(0, 10);
   if (topPages.length) {
     r += '\n' + LINE + '\n검출 집중 페이지 (상위 10)\n' + LINE + '\n';
@@ -6320,6 +6418,7 @@ function pdfDownloadReport() {
       r += `  p.${String(pg).padStart(4)}  ${cnt}건\n`;
   }
 
+  // 상세 내역 — 페이지 → 위치 순 정렬
   r += '\n' + LINE + '\n상세 내역\n' + LINE + '\n';
   const sorted = [...issues].sort((a,b) => a.page !== b.page ? a.page - b.page : (a._pos||0) - (b._pos||0));
 
@@ -6330,6 +6429,7 @@ function pdfDownloadReport() {
       lastPage = iss.page;
     }
 
+    // 문맥 추출 (앞뒤 25자)
     const pageText = pdfState.pages[iss.page]?.text || '';
     const pos = iss._pos ?? 0;
     const len = iss._len ?? iss.original.length;
