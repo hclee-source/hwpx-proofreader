@@ -1590,7 +1590,7 @@
         </label>
         <div style="font-size:13px; color:var(--ink-muted); margin-bottom:10px;" id="ruleCountInfo"></div>
         <div class="actions">
-          <button class="btn btn-primary" id="analyzeBtn" disabled>⚡ 오류 검출 시작</button>
+          <button class="btn btn-primary" id="analyzeBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">⚡ 오류 검출 시작</button>
           <button class="btn btn-secondary" id="resetBtn">↺ 초기화</button>
         </div>
       </div>
@@ -1612,6 +1612,9 @@
             <option value="terminology">용어 일관성</option>
             <option value="custom">기타</option>
           </select>
+          <select id="filterRule" class="filter-select" title="특정 규칙의 검출만 모아 봅니다 — 오탐 규칙은 여기서 좁힌 뒤 '표시 항목 해제'로 한 번에 뺄 수 있습니다">
+            <option value="all">전체 규칙</option>
+          </select>
           <select id="filterSort" class="filter-select">
             <option value="position">위치순</option>
             <option value="confidence_desc">신뢰도 높은순</option>
@@ -1622,11 +1625,14 @@
             <input type="range" id="filterMinConfidence" min="0" max="100" value="0">
             <span id="filterMinConfidenceLabel" class="filter-range-val">0%</span>
           </div>
+          <input type="search" id="filterSearch" class="filter-select" placeholder="🔍 원문·수정안·문맥 검색"
+            style="flex:1;min-width:150px;" title="검출 항목의 원문·수정안·앞뒤 문맥에서 검색합니다">
         </div>
 
         <div class="result-controls">
-          <button class="btn btn-secondary btn-sm" id="selectAllBtn">전체 선택</button>
-          <button class="btn btn-secondary btn-sm" id="deselectAllBtn">전체 해제</button>
+          <button class="btn btn-secondary btn-sm" id="selectAllBtn" title="아래에 표시된(필터 적용) 항목만 선택합니다">표시 항목 선택</button>
+          <button class="btn btn-secondary btn-sm" id="deselectAllBtn" title="아래에 표시된(필터 적용) 항목만 해제합니다">표시 항목 해제</button>
+          <span class="result-count-badge" id="displayedCount"></span>
           <span class="result-count-badge" id="selectedCount">0개 선택</span>
         </div>
 
@@ -1661,8 +1667,8 @@
               <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
                 <input type="radio" name="hwpxExamFormat" value="footer"> 하단 정답표 ('정답 1.② 2.④')
               </label>
-              <button class="btn btn-secondary btn-sm" id="hwpxExamCheckBtn" disabled>정합성 검사</button>
-              <button class="btn btn-secondary btn-sm" id="hwpxAnswerStatsBtn" disabled>정답 분포 통계</button>
+              <button class="btn btn-secondary btn-sm" id="hwpxExamCheckBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">정합성 검사</button>
+              <button class="btn btn-secondary btn-sm" id="hwpxAnswerStatsBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">정답 분포 통계</button>
             </div>
             <div id="hwpxExamResult" style="font-size:12px;"></div>
             <div id="hwpxAnswerStatsResult" style="font-size:12px;margin-top:8px;"></div>
@@ -1918,7 +1924,7 @@
         </div>
         <p style="font-size:13px;color:var(--ink-muted);margin:0 0 12px;">선택된 교정 항목과 위에서 설정한 서식·전처리 옵션을 함께 적용하여 하나의 파일로 다운로드합니다.</p>
         <div class="actions" style="margin-top:0;margin-bottom:0;">
-          <button class="btn btn-primary" id="finalDownloadBtn" disabled>⬇ 최종 다운로드</button>
+          <button class="btn btn-primary" id="finalDownloadBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">⬇ 최종 다운로드</button>
         </div>
       </div>
     </div>
@@ -1983,7 +1989,7 @@
         </label>
         <div style="font-size:13px; color:var(--ink-muted); margin:10px 0;" id="batchRuleInfo"></div>
         <div class="actions">
-          <button class="btn btn-primary" id="batchRunBtn" disabled>⚡ 일괄 처리 시작</button>
+          <button class="btn btn-primary" id="batchRunBtn" disabled data-disabled-hint="처리할 HWPX 파일을 먼저 추가하세요" title="처리할 HWPX 파일을 먼저 추가하세요">⚡ 일괄 처리 시작</button>
           <button class="btn btn-secondary" id="batchClearBtn">↺ 목록 초기화</button>
         </div>
       </div>
@@ -1996,7 +2002,7 @@
         <div id="batchProgress" class="batch-progress-text"></div>
         <div id="batchResults"></div>
         <div class="actions" style="margin-top:16px; margin-bottom:0;">
-          <button class="btn btn-primary" id="batchDownloadAllBtn" disabled>⬇ 전체 다운로드 (ZIP)</button>
+          <button class="btn btn-primary" id="batchDownloadAllBtn" disabled data-disabled-hint="일괄 처리를 먼저 실행하세요" title="일괄 처리를 먼저 실행하세요">⬇ 전체 다운로드 (ZIP)</button>
         </div>
       </div>
     </div><!-- /batch -->
@@ -2128,7 +2134,7 @@
         </div>
       </div>
 
-      <button class="btn btn-primary" id="pdfClaudeBtn" style="width:100%;font-size:12px;">✨ AI 교정 실행</button>
+      <button class="btn btn-primary" id="pdfClaudeBtn" style="width:100%;font-size:12px;" disabled data-disabled-hint="PDF 로드 후 '⚡ 오류 검출 시작'으로 텍스트를 먼저 추출하세요" title="PDF 로드 후 '⚡ 오류 검출 시작'으로 텍스트를 먼저 추출하세요">✨ AI 교정 실행</button>
       <div id="pdfClaudeStatus" style="font-size:11px;color:var(--ink-faint);margin-top:6px;text-align:center;min-height:14px;"></div>
     </div>
 
@@ -2234,8 +2240,8 @@
                 <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
                   <input type="radio" name="pdfExamFormat" value="footer"> 하단 정답표 ('정답 1.② 2.④')
                 </label>
-                <button class="btn btn-secondary btn-sm" id="pdfExamCheckBtn" disabled>정합성 검사</button>
-                <button class="btn btn-secondary btn-sm" id="pdfAnswerStatsBtn" disabled>정답 분포 통계</button>
+                <button class="btn btn-secondary btn-sm" id="pdfExamCheckBtn" disabled data-disabled-hint="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요" title="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요">정합성 검사</button>
+                <button class="btn btn-secondary btn-sm" id="pdfAnswerStatsBtn" disabled data-disabled-hint="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요" title="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요">정답 분포 통계</button>
               </div>
               <div id="pdfExamResult" style="font-size:12px;"></div>
               <div id="pdfAnswerStatsResult" style="font-size:12px;margin-top:8px;"></div>
@@ -2251,7 +2257,7 @@
               </div>
               <textarea id="pdfTocInput" rows="4" placeholder="1장 데이터의 이해 15&#10;2장 통계 분석 47"
                 style="width:100%;box-sizing:border-box;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);resize:vertical;font-family:inherit;"></textarea>
-              <button class="btn btn-secondary btn-sm" id="pdfXcheckBtn" disabled style="margin-top:6px;">쪽수 검증 실행</button>
+              <button class="btn btn-secondary btn-sm" id="pdfXcheckBtn" disabled style="margin-top:6px;" data-disabled-hint="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요" title="'⚡ 오류 검출 시작'으로 PDF 텍스트를 먼저 추출하세요">쪽수 검증 실행</button>
               <div id="pdfXcheckResult" style="font-size:12px;margin-top:8px;"></div>
             </div>
 
@@ -2261,8 +2267,8 @@
 
       <!-- 다운로드 -->
       <div class="actions" style="margin-top:16px;">
-        <button class="btn btn-primary" id="pdfDownloadBtn" disabled>⬇ 주석 PDF 다운로드</button>
-        <button class="btn btn-secondary" id="pdfReportBtn" disabled>📄 리포트 다운로드</button>
+        <button class="btn btn-primary" id="pdfDownloadBtn" disabled data-disabled-hint="주석으로 삽입할 항목을 1개 이상 선택하세요" title="주석으로 삽입할 항목을 1개 이상 선택하세요">⬇ 주석 PDF 다운로드</button>
+        <button class="btn btn-secondary" id="pdfReportBtn" disabled data-disabled-hint="검출된 항목이 있어야 리포트를 만들 수 있습니다" title="검출된 항목이 있어야 리포트를 만들 수 있습니다">📄 리포트 다운로드</button>
         <span style="font-size:12px;color:var(--ink-muted);" id="pdfDownloadNote"></span>
       </div>
 
@@ -2901,7 +2907,7 @@ const state = {
   undoStack: [],
   editingRuleId: null,
   sectionAnalysis: {},
-  filter: { category: 'all', sort: 'position', minConfidence: 0 }
+  filter: { category: 'all', sort: 'position', minConfidence: 0, ruleId: 'all', search: '' }
 };
 
 // ========== DOM 요소 ==========
@@ -3157,13 +3163,12 @@ async function handleFile(file) {
     }
 
     setProgress(100);
-    analyzeBtn.disabled = false;
-    const finalBtn = document.getElementById('finalDownloadBtn');
-    if (finalBtn) finalBtn.disabled = false;
+    setBtnEnabled('analyzeBtn', true);
+    setBtnEnabled('finalDownloadBtn', true);
     // 문제집 검수는 오류 검출 없이도 파일만 있으면 실행 가능
     // (window.hwpxExamState는 PDF 모듈 스크립트가 정의 — 모듈이 죽어도 파일 로드는 계속돼야 하므로 가드)
     if (window.hwpxExamState) { window.hwpxExamState.report = null; window.hwpxExamState.stats = null; }
-    ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = false; });
+    ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => setBtnEnabled(id, true));
     ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
     if (scEl) scEl.textContent = ` · ${sectionNames.length}개 섹션`;
     showToast(`파일 로드 완료 — ${sectionNames.length}개 섹션`);
@@ -4035,7 +4040,41 @@ function renderResults() {
     </div>
   `).join('');
 
+  populateRuleFilter();
   renderIssuesList();
+}
+
+// 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 뒤 공백 (자동)' };
+function hwpxRuleLabel(ruleId) {
+  const auto = AUTO_RULE_NAMES[String(ruleId)];
+  if (auto) return auto;
+  const r = state.rules.find(x => x.id === ruleId);
+  if (!r) return '규칙 #' + ruleId;
+  const t = r.original + ' → ' + r.replacement;
+  return t.length > 28 ? t.slice(0, 27) + '…' : t;
+}
+
+// 검출 결과에 실제로 등장한 규칙만 건수와 함께 나열 — 오탐 규칙을 한 번에 걸러내는 진입점
+function populateRuleFilter() {
+  const sel = document.getElementById('filterRule');
+  if (!sel) return;
+  const counts = new Map();
+  state.issues.forEach(i => counts.set(i.ruleId, (counts.get(i.ruleId) || 0) + 1));
+  const options = ['<option value="all">전체 규칙</option>'];
+  [...counts.entries()].sort((a, b) => b[1] - a[1]).forEach(([id, n]) => {
+    options.push(`<option value="${escapeHtml(String(id))}">${escapeHtml(hwpxRuleLabel(id))} (${n})</option>`);
+  });
+  sel.innerHTML = options.join('');
+  // 재분석 후에도 기존 선택 유지 — 사라진 규칙이면 전체로 복귀
+  const prev = state.filter.ruleId;
+  sel.value = [...counts.keys()].some(k => String(k) === prev) ? prev : 'all';
+  state.filter.ruleId = sel.value;
+}
+
+function updateDisplayedCount() {
+  const el = document.getElementById('displayedCount');
+  if (el) el.textContent = `표시 ${state.displayedIssues.length} / 전체 ${state.issues.length}`;
 }
 
 function renderIssuesList() {
@@ -4046,24 +4085,30 @@ function renderIssuesList() {
       <div class="empty-state-desc">등록된 규칙에 해당하는 패턴이 문서에 없거나, 규칙 관리 탭에서 규칙을 먼저 추가해 주세요</div>
     </div>`;
     state.displayedIssues = [];
+    updateDisplayedCount();
     return;
   }
 
   let list = state.issues;
-  const { category, sort, minConfidence } = state.filter;
+  const { category, sort, minConfidence, ruleId, search } = state.filter;
   if (category !== 'all') list = list.filter(i => i.category === category);
+  if (ruleId !== 'all') list = list.filter(i => String(i.ruleId) === ruleId);
   if (minConfidence > 0) list = list.filter(i => i.confidence >= minConfidence / 100);
+  const q = search.trim().toLowerCase();
+  if (q) list = list.filter(i =>
+    (i.original + '\x00' + i.suggestion + '\x00' + i.contextBefore + '\x00' + i.contextAfter).toLowerCase().includes(q));
   list = [...list];
   if (sort === 'confidence_desc') list.sort((a, b) => b.confidence - a.confidence);
   else if (sort === 'confidence_asc') list.sort((a, b) => a.confidence - b.confidence);
 
   state.displayedIssues = list;
+  updateDisplayedCount();
 
   if (list.length === 0) {
     issuesList.innerHTML = `<div class="empty-state">
       <span class="empty-state-icon">🔎</span>
       <div class="empty-state-title">조건에 맞는 항목이 없습니다</div>
-      <div class="empty-state-desc">필터 조건을 변경해보세요</div>
+      <div class="empty-state-desc">필터·검색 조건을 변경해보세요</div>
     </div>`;
     return;
   }
@@ -4085,22 +4130,21 @@ function renderIssuesList() {
     </div>`;
   }).join('');
 
-  document.querySelectorAll('.issue-checkbox').forEach(cb => {
-    cb.addEventListener('change', e => {
-      const id = parseInt(e.target.dataset.id);
-      const issue = state.issues.find(i => i.globalId === id);
-      if (issue) { issue.selected = e.target.checked; updateSelectedCount(); }
-    });
-  });
-
   updateSelectedCount();
 }
+
+// 체크박스는 위임 한 번으로 처리 — 항목마다 리스너를 다시 붙이면 대량 결과에서 재렌더가 무거워진다
+issuesList.addEventListener('change', e => {
+  if (!e.target.classList || !e.target.classList.contains('issue-checkbox')) return;
+  const id = parseInt(e.target.dataset.id);
+  const issue = state.issues.find(i => i.globalId === id);
+  if (issue) { issue.selected = e.target.checked; updateSelectedCount(); }
+});
 
 function updateSelectedCount() {
   const cnt = state.issues.filter(i => i.selected).length;
   document.getElementById('selectedCount').textContent = `${cnt}개 선택`;
-  const finalBtn = document.getElementById('finalDownloadBtn');
-  if (finalBtn) finalBtn.disabled = !state.file;
+  setBtnEnabled('finalDownloadBtn', !!state.file);
 }
 
 document.getElementById('selectAllBtn').addEventListener('click', () => {
@@ -4430,18 +4474,28 @@ resetBtn.addEventListener('click', () => {
   fileInput.value = '';
   fileInfo.classList.remove('show');
   dropZone.style.display = '';
-  analyzeBtn.disabled = true;
-  const finalBtn2 = document.getElementById('finalDownloadBtn');
-  if (finalBtn2) finalBtn2.disabled = true;
+  setBtnEnabled('analyzeBtn', false);
+  setBtnEnabled('finalDownloadBtn', false);
+  state.filter.ruleId = 'all'; state.filter.search = '';
+  const frSel = document.getElementById('filterRule');
+  if (frSel) frSel.innerHTML = '<option value="all">전체 규칙</option>';
+  const fsInput = document.getElementById('filterSearch');
+  if (fsInput) fsInput.value = '';
   resultsPanel.classList.add('hidden');
   if (window.hwpxExamState) { window.hwpxExamState.report = null; window.hwpxExamState.stats = null; }
-  ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = true; });
+  ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => setBtnEnabled(id, false));
   ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
   showToast('초기화 완료');
 });
 
 // ========== 결과 필터·정렬 ==========
 document.getElementById('filterCategory').addEventListener('change', e => { state.filter.category = e.target.value; renderIssuesList(); });
+document.getElementById('filterRule').addEventListener('change', e => { state.filter.ruleId = e.target.value; renderIssuesList(); });
+let _searchTimer;
+document.getElementById('filterSearch').addEventListener('input', e => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => { state.filter.search = e.target.value; renderIssuesList(); }, 150);
+});
 document.getElementById('filterSort').addEventListener('change', e => { state.filter.sort = e.target.value; renderIssuesList(); });
 document.getElementById('filterMinConfidence').addEventListener('input', e => {
   state.filter.minConfidence = parseInt(e.target.value);
@@ -4604,6 +4658,16 @@ function showToast(msg, duration = 2800) {
   toast.classList.add('show');
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+// 비활성 버튼이 "왜 회색인지" 알려주는 헬퍼 — data-disabled-hint가 있으면
+// 비활성일 때 title 툴팁으로 노출하고, 활성화되면 제거한다
+function setBtnEnabled(id, enabled) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  b.disabled = !enabled;
+  const hint = b.dataset && b.dataset.disabledHint;
+  if (hint) { if (enabled) b.removeAttribute('title'); else b.title = hint; }
 }
 
 function setProgress(pct) {
@@ -4949,7 +5013,7 @@ function batchAddFiles(fileList) {
   batchState.files.push(...arr);
   batchRenderFileList();
   document.getElementById('batchRuleInfo').textContent = '적용할 규칙: ' + state.rules.length + '개';
-  document.getElementById('batchRunBtn').disabled = false;
+  setBtnEnabled('batchRunBtn', true);
 }
 
 function batchRenderFileList() {
@@ -4970,7 +5034,7 @@ document.getElementById('batchClearBtn').addEventListener('click', () => {
   batchState.results = [];
   batchRenderFileList();
   document.getElementById('batchResultPanel').classList.add('hidden');
-  document.getElementById('batchRunBtn').disabled = true;
+  setBtnEnabled('batchRunBtn', false);
   showToast('파일 목록이 초기화되었습니다');
 });
 
@@ -5052,7 +5116,7 @@ async function batchRun() {
   const ok = batchState.results.filter(r => !r.error).length;
   const prog = document.getElementById('batchProgress');
   if (prog) prog.innerHTML = '<strong>일괄 처리 완료!</strong> 성공: ' + ok + '개, 실패: ' + (batchState.files.length - ok) + '개';
-  document.getElementById('batchDownloadAllBtn').disabled = ok === 0;
+  setBtnEnabled('batchDownloadAllBtn', ok > 0);
   runBtn.disabled = false;
 }
 
@@ -5897,6 +5961,7 @@ async function pdfRunClaudeDetect() {
   const btn = document.getElementById('pdfClaudeBtn');
   btn.disabled = true;
   status.textContent = '준비 중…';
+  status.style.color = '';
   pdfSetProgress(2);
 
   const allRaw = [];
@@ -5924,6 +5989,7 @@ async function pdfRunClaudeDetect() {
   }
 
   let firstError = null;
+  const failedPages = []; // 인쇄용 1-기준 페이지 번호 — 부분 실패를 사용자에게 표면화
   const queue = [...pages];
   async function processOne() {
     if (!queue.length) return;
@@ -5932,7 +5998,8 @@ async function pdfRunClaudeDetect() {
       const corrections = await apiCallFn(page.text);
       for (const c of corrections) allRaw.push({ pageIndex: page.index, correction: c });
     } catch (e) {
-      if (!firstError) firstError = e; // 첫 번째 에러만 기록
+      if (!firstError) firstError = e; // 대표 에러 메시지용
+      failedPages.push(page.index + 1);
     }
     processed++;
     pdfSetProgress(Math.round((processed / pages.length) * 85) + 5);
@@ -5990,11 +6057,21 @@ async function pdfRunClaudeDetect() {
 
     pdfSetProgress(100);
     const matchRate = allRaw.length > 0 ? ` (감지 ${allRaw.length}개 중 ${added}개 매칭)` : '';
-    status.textContent = `완료 — AI 교정 ${added}개 추가됨${matchRate}`;
     document.getElementById('pdfResultsWrap').classList.remove('hidden');
     await pdfRenderPage(pdfState.currentPage);
     pdfRenderIssueList();
-    showToast(`AI 교정 완료 — ${added}개 항목${matchRate}`, 4000);
+    if (failedPages.length) {
+      // 일부 페이지만 실패해도 조용히 "완료"로 보이면 누락을 모른 채 결과를 신뢰하게 된다
+      failedPages.sort((a, b) => a - b);
+      const shown = 'p' + failedPages.slice(0, 10).join(', p') + (failedPages.length > 10 ? ' …' : '');
+      status.textContent = `⚠ 부분 완료 — AI 교정 ${added}개 추가${matchRate} · ${failedPages.length}/${pages.length}쪽 실패 (${shown})`;
+      status.style.color = 'var(--warning)';
+      showToast(`AI 교정 부분 완료 — ${added}개 추가, ${failedPages.length}쪽 실패: ${firstError ? firstError.message : '오류'}`, 6000);
+    } else {
+      status.textContent = `완료 — AI 교정 ${added}개 추가됨${matchRate}`;
+      status.style.color = '';
+      showToast(`AI 교정 완료 — ${added}개 항목${matchRate}`, 4000);
+    }
   } catch (err) {
     showToast('AI 오류: ' + err.message);
     status.textContent = '오류: ' + err.message;
@@ -6181,6 +6258,9 @@ function runConsistencyCheck() {
 }
 
 // ── 문제집 검수 공통 파서 ─────────────────────────────────
+// 파서는 async — 대용량 문서에서 동기 루프가 UI를 얼리지 않도록 주기적으로 이벤트 루프에 양보
+const examYield = () => new Promise(r => setTimeout(r, 0));
+
 // PDF 추출 시 ①(U+2460)이 ➀(U+2780)·❶(U+2776) 등 변형으로 나온다
 const EXAM_CIRCLED = ['①②③④⑤', '➀➁➂➃➄', '❶❷❸❹❺', '⑴⑵⑶⑷⑸'];
 const EXAM_CIRCLED_CLASS = '[' + EXAM_CIRCLED.join('') + ']';
@@ -6230,7 +6310,8 @@ function isNegativeQuestion(questionHead) {
 
 // 전체 페이지에서 문항 파싱 (exam_check·answer_stats 공용)
 // 회차 헤더(기출변형 N회 등)를 페이지 상단에서 감지해 각 문항에 태깅한다.
-function parseExamQuestions(format) {
+// onProgress(done, total): 페이지 단위 진행 콜백 (선택)
+async function parseExamQuestions(format, onProgress) {
   const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
   const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
   // 보기 집계 전 제거용 — 정답 표기('답: ⑤'와 해설의 '정답: ⑤' 재진술 전부)와
@@ -6277,6 +6358,8 @@ function parseExamQuestions(format) {
         negative: isNegativeQuestion(head),
       });
     }
+    if (onProgress) onProgress(pageIdx + 1, pdfState.pages.length);
+    if (pageIdx % 5 === 4) await examYield();
   }
   return { questions, footerAnswers, footerByRound };
 }
@@ -6368,8 +6451,8 @@ function examAnalyze(questions, footerAnswers, format, footerByRound) {
   };
 }
 
-function runExamCheck(format) {
-  const { questions, footerAnswers, footerByRound } = parseExamQuestions(format);
+async function runExamCheck(format, onProgress) {
+  const { questions, footerAnswers, footerByRound } = await parseExamQuestions(format, onProgress);
   const report = examAnalyze(questions, footerAnswers, format, footerByRound);
 
   // 위치 있는 finding → 이슈로 push (문항 번호+질문 머리 하이라이트)
@@ -6486,9 +6569,9 @@ function answerStatsAnalyze(questions, footerByRound, format) {
   return { format, rounds: roundStats, cumulative, totalAll, maxChoice, alerts };
 }
 
-function runAnswerStats(format) {
+async function runAnswerStats(format, onProgress) {
   // exam_check와 동일한 공용 파서 사용 — 파싱 휴리스틱이 두 기능에서 갈라지지 않게 한다
-  const { questions, footerByRound } = parseExamQuestions(format);
+  const { questions, footerByRound } = await parseExamQuestions(format, onProgress);
   pdfState.answerStats = answerStatsAnalyze(questions, footerByRound, format);
   return pdfState.answerStats;
 }
@@ -6584,7 +6667,8 @@ function splitQuestionsHwpx(text) {
 // 전체 섹션에서 문항 파싱 — parseExamQuestions의 HWPX 판.
 // 페이지 개념이 없으므로 회차 헤더는 짧은 문단(≤40자)에서 위치 기반으로 감지하고,
 // footer 정답표 항목도 출현 위치의 회차에 귀속시킨다.
-function parseExamQuestionsHwpx(format) {
+// onProgress(done, total): 섹션 단위 진행 콜백 — 섹션이 크면 문항 200개마다 소수 진행값 전달
+async function parseExamQuestionsHwpx(format, onProgress) {
   const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
   const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
   // parseExamQuestions와 동일한 보기 집계 전 제거용 정규식 (주석 참고)
@@ -6594,7 +6678,9 @@ function parseExamQuestionsHwpx(format) {
   const footerAnswers = {};
   const footerByRound = {};
 
-  for (const sec of hwpxExamSections()) {
+  const sections = hwpxExamSections();
+  for (let si = 0; si < sections.length; si++) {
+    const sec = sections[si];
     if (!sec.originalText) continue;
     const secLabel = sec.name.replace(/^Contents\//, '').replace(/\.xml$/, '');
     // \x01은 originalText에서 문단 경계와 문단 내부 탭·줄바꿈 마커 두 용도로 쓰여 구분이 안 되므로
@@ -6632,7 +6718,14 @@ function parseExamQuestionsHwpx(format) {
       }
     }
 
-    for (const q of splitQuestionsHwpx(text)) {
+    const qs = splitQuestionsHwpx(text);
+    for (let qi = 0; qi < qs.length; qi++) {
+      const q = qs[qi];
+      // 섹션 하나가 문서 전체인 경우가 흔해 문항 단위로도 양보 — 섹션 내 진행률도 소수로 전달
+      if (qi > 0 && qi % 200 === 0) {
+        if (onProgress) onProgress(si + qi / qs.length, sections.length);
+        await examYield();
+      }
       let optBody = q.body.replace(ansStripRe, '');
       if (format === 'footer') optBody = optBody.replace(footerPairRe, '');
       const optChars = optBody.match(circledRe) || [];
@@ -6655,18 +6748,20 @@ function parseExamQuestionsHwpx(format) {
         negative: isNegativeQuestion(head),
       });
     }
+    if (onProgress) onProgress(si + 1, sections.length);
+    await examYield();
   }
   return { questions, footerAnswers, footerByRound };
 }
 
-function runExamCheckHwpx(format) {
-  const { questions, footerAnswers, footerByRound } = parseExamQuestionsHwpx(format);
+async function runExamCheckHwpx(format, onProgress) {
+  const { questions, footerAnswers, footerByRound } = await parseExamQuestionsHwpx(format, onProgress);
   hwpxExamState.report = examAnalyze(questions, footerAnswers, format, footerByRound);
   return hwpxExamState.report;
 }
 
-function runAnswerStatsHwpx(format) {
-  const { questions, footerByRound } = parseExamQuestionsHwpx(format);
+async function runAnswerStatsHwpx(format, onProgress) {
+  const { questions, footerByRound } = await parseExamQuestionsHwpx(format, onProgress);
   hwpxExamState.stats = answerStatsAnalyze(questions, footerByRound, format);
   return hwpxExamState.stats;
 }
@@ -7112,9 +7207,8 @@ function pdfRenderIssueList() {
   const selected = pdfState.issues.filter(x => x._selected).length;
 
   document.getElementById('pdfIssueCountBadge').textContent = selected + '/' + total + '개';
-  const dlBtn = document.getElementById('pdfDownloadBtn');
-  dlBtn.disabled = selected === 0;
-  document.getElementById('pdfReportBtn').disabled = total === 0;
+  setBtnEnabled('pdfDownloadBtn', selected > 0);
+  setBtnEnabled('pdfReportBtn', total > 0);
   document.getElementById('pdfDownloadNote').textContent =
     selected > 0 ? selected + '개 항목을 주석으로 삽입합니다' : '';
 
@@ -7303,9 +7397,7 @@ function pdfHandleFile(file) {
   pdfState.examReport  = null;
   pdfState.answerStats = null;
   pdfState.xcheck      = null;
-  ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn'].forEach(id => {
-    const b = document.getElementById(id); if (b) b.disabled = true;
-  });
+  ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn', 'pdfClaudeBtn'].forEach(id => setBtnEnabled(id, false));
   ['pdfExamResult', 'pdfAnswerStatsResult', 'pdfXcheckResult'].forEach(id => {
     const e = document.getElementById(id); if (e) e.innerHTML = '';
   });
@@ -7340,6 +7432,7 @@ document.getElementById('pdfChangeFileBtn').addEventListener('click', () => {
   document.getElementById('pdfDetectPanel').classList.add('hidden');
   document.getElementById('pdfResultsWrap').classList.add('hidden');
   pdfState.file = null; pdfState.pages = []; pdfState.issues = [];
+  ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn', 'pdfClaudeBtn'].forEach(id => setBtnEnabled(id, false));
 });
 
 document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
@@ -7355,16 +7448,14 @@ document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
     // 재검출은 pdfState.issues를 전체 교체하므로, 이전에 실행한 문제집 검수 이슈(-6)를
     // 페이지 렌더 전에 다시 push해 패널·리포트·주석 PDF가 어긋나지 않게 한다
     if (pdfState.examReport) {
-      const rep = runExamCheck(pdfState.examReport.format);
+      const rep = await runExamCheck(pdfState.examReport.format);
       renderExamReport(rep);
     }
     await pdfRenderPage(0);
     renderConsistencySummary();
     pdfRenderIssueList();
-    // 검수 버튼 활성화 (추출 완료 후에만 의미 있음)
-    ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn'].forEach(id => {
-      const b = document.getElementById(id); if (b) b.disabled = false;
-    });
+    // 검수·AI 교정 버튼 활성화 (텍스트 추출 완료 후에만 의미 있음)
+    ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn', 'pdfClaudeBtn'].forEach(id => setBtnEnabled(id, true));
     showToast('검출 완료 — ' + issues.length + '개 항목', 3000);
     pdfSetProgress(100);
   } catch (err) {
@@ -7552,17 +7643,29 @@ function renderXcheckReport(x) {
 }
 
 document.getElementById('pdfExamCheckBtn').addEventListener('click', async () => {
-  const rep = runExamCheck(pdfExamFormat());
-  renderExamReport(rep);
-  pdfRenderIssueList();
-  await pdfRenderPage(pdfState.currentPage);
-  showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+  const btn = document.getElementById('pdfExamCheckBtn');
+  btn.disabled = true;
+  pdfSetProgress(2);
+  try {
+    const rep = await runExamCheck(pdfExamFormat(), (done, total) => pdfSetProgress(2 + Math.round(done / total * 90)));
+    renderExamReport(rep);
+    pdfRenderIssueList();
+    await pdfRenderPage(pdfState.currentPage);
+    showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+  } catch (err) { showToast('문제집 검수 오류: ' + err.message); console.error(err);
+  } finally { btn.disabled = false; pdfSetProgress(100); }
 });
 
-document.getElementById('pdfAnswerStatsBtn').addEventListener('click', () => {
-  const stats = runAnswerStats(pdfExamFormat());
-  renderAnswerStats(stats, null, { fileBase: (pdfState.file?.name || 'document.pdf').replace(/\.[^.]+$/, '') });
-  if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+document.getElementById('pdfAnswerStatsBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('pdfAnswerStatsBtn');
+  btn.disabled = true;
+  pdfSetProgress(2);
+  try {
+    const stats = await runAnswerStats(pdfExamFormat(), (done, total) => pdfSetProgress(2 + Math.round(done / total * 90)));
+    renderAnswerStats(stats, null, { fileBase: (pdfState.file?.name || 'document.pdf').replace(/\.[^.]+$/, '') });
+    if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+  } catch (err) { showToast('정답 분포 집계 오류: ' + err.message); console.error(err);
+  } finally { btn.disabled = false; pdfSetProgress(100); }
 });
 
 // ── HWPX 문제집 검수 (교정 탭) ────────────────────────────
@@ -7570,17 +7673,29 @@ function hwpxExamFormat() {
   return document.querySelector('input[name="hwpxExamFormat"]:checked')?.value || 'inline';
 }
 
-document.getElementById('hwpxExamCheckBtn').addEventListener('click', () => {
-  const rep = runExamCheckHwpx(hwpxExamFormat());
-  renderExamReport(rep, document.getElementById('hwpxExamResult'), { locHeader: '구역', plainNote: true });
-  showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+document.getElementById('hwpxExamCheckBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('hwpxExamCheckBtn');
+  btn.disabled = true;
+  setProgress(5);
+  try {
+    const rep = await runExamCheckHwpx(hwpxExamFormat(), (done, total) => setProgress(5 + Math.round(done / total * 90)));
+    renderExamReport(rep, document.getElementById('hwpxExamResult'), { locHeader: '구역', plainNote: true });
+    showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+  } catch (err) { showToast('문제집 검수 오류: ' + err.message); console.error(err);
+  } finally { btn.disabled = false; setProgress(100); }
 });
 
-document.getElementById('hwpxAnswerStatsBtn').addEventListener('click', () => {
-  const stats = runAnswerStatsHwpx(hwpxExamFormat());
-  renderAnswerStats(stats, document.getElementById('hwpxAnswerStatsResult'),
-    { fileBase: (state.file?.name || 'document.hwpx').replace(/\.[^.]+$/, '') });
-  if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+document.getElementById('hwpxAnswerStatsBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('hwpxAnswerStatsBtn');
+  btn.disabled = true;
+  setProgress(5);
+  try {
+    const stats = await runAnswerStatsHwpx(hwpxExamFormat(), (done, total) => setProgress(5 + Math.round(done / total * 90)));
+    renderAnswerStats(stats, document.getElementById('hwpxAnswerStatsResult'),
+      { fileBase: (state.file?.name || 'document.hwpx').replace(/\.[^.]+$/, '') });
+    if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+  } catch (err) { showToast('정답 분포 집계 오류: ' + err.message); console.error(err);
+  } finally { btn.disabled = false; setProgress(100); }
 });
 
 document.getElementById('pdfXcheckBtn').addEventListener('click', () => {
