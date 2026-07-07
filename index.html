@@ -2109,7 +2109,10 @@
               style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);">
             <button id="pdfClaudeKeyToggle" title="보기/숨기기"
               style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:12px;color:var(--ink-soft);">👁</button>
+            <button id="pdfClaudeTestBtn" title="키·모델 유효성 확인"
+              style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;color:var(--ink-soft);">확인</button>
           </div>
+          <div id="pdfClaudeTestResult" style="font-size:10px;margin-top:4px;line-height:1.4;"></div>
         </div>
         <div style="margin-bottom:8px;">
           <div style="font-size:11px;color:var(--ink-faint);margin-bottom:3px;">모델</div>
@@ -2118,6 +2121,9 @@
             <option value="claude-haiku-4-5-20251001">Haiku (빠름 · 저렴)</option>
             <option value="claude-sonnet-4-6">Sonnet (정확)</option>
           </select>
+        </div>
+        <div style="font-size:10px;color:var(--ink-faint);line-height:1.6;padding:6px 8px;background:var(--surface-alt);border-radius:4px;margin-bottom:8px;">
+          ⚠️ API 키는 이 브라우저에 <b>평문으로 저장</b>됩니다. 공용·공유 PC에서는 사용 후 키를 지우세요.
         </div>
       </div>
 
@@ -2928,14 +2934,22 @@ const importInput = document.getElementById('importInput');
 const clearAllBtn = document.getElementById('clearAllBtn');
 
 // ========== 로컬스토리지 관리 ==========
+let rulesCorrupted = false; // 규칙 로드 실패 시 기본 로드 안내 토스트가 경고를 덮지 않도록
 function loadRules() {
   const stored = localStorage.getItem('hwpx_rules');
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) throw new Error('규칙 데이터가 배열이 아님');
       state.rules = parsed.map(r => ({ type: 'literal', ...r }));
     } catch (e) {
+      // 조용히 []로 초기화하면 아래에서 기본 프리셋으로 덮어써 사용자 규칙이 영구 소실된다.
+      // 손상 원본을 백업 키에 보존하고 강하게 통지 → 복구 여지를 남긴다.
       state.rules = [];
+      try { localStorage.setItem('hwpx_rules_corrupt_backup', stored); } catch (_) {}
+      console.error('규칙 로드 실패:', e);
+      rulesCorrupted = true;
+      setTimeout(() => showToast('⚠️ 저장된 교정 규칙을 읽지 못했습니다. 손상된 데이터는 백업(hwpx_rules_corrupt_backup)에 보관했고, 기본 규칙으로 시작합니다.', 6000), 300);
     }
   }
 
@@ -2949,7 +2963,9 @@ function loadRules() {
       });
     }
     saveRules();
-    setTimeout(() => showToast('골든래빗 어문 규정 기본 규칙 ' + state.rules.length + '개가 자동으로 로드되었습니다.', 4000), 300);
+    // 손상 복구 상황에선 위 경고 토스트를 유지 (기본 로드 안내가 덮어쓰지 않도록)
+    if (!rulesCorrupted)
+      setTimeout(() => showToast('골든래빗 어문 규정 기본 규칙 ' + state.rules.length + '개가 자동으로 로드되었습니다.', 4000), 300);
   }
 
   state.rules.forEach((r, i) => { r.id = r.id || i; });
@@ -3023,7 +3039,9 @@ function saveRules() {
   try {
     localStorage.setItem('hwpx_rules', JSON.stringify(state.rules));
   } catch (e) {
-    if (e.name === 'QuotaExceededError') showToast('저장 공간 부족. 일부 규칙을 삭제하거나 JSON으로 내보내세요.');
+    console.error('규칙 저장 실패:', e);
+    if (e.name === 'QuotaExceededError') showToast('⚠️ 저장 공간 부족 — 규칙이 저장되지 않았습니다. 일부 규칙을 삭제하거나 JSON으로 내보내세요.', 5000);
+    else showToast('⚠️ 규칙 저장 실패: ' + e.message + ' — 변경분이 유지되지 않을 수 있습니다.', 5000);
   }
   renderRulesTable();
   updateRuleCategoriesSidebar();
@@ -3033,15 +3051,28 @@ function saveRules() {
 function loadExceptions() {
   try {
     const stored = localStorage.getItem('hwpx_exceptions');
-    state.exceptions = stored ? JSON.parse(stored) : [];
+    const parsed = stored ? JSON.parse(stored) : [];
+    if (!Array.isArray(parsed)) throw new Error('예외 데이터가 배열이 아님');
+    state.exceptions = parsed;
   } catch (e) {
     state.exceptions = [];
+    const stored = localStorage.getItem('hwpx_exceptions');
+    if (stored) { // 값이 있는데 파싱 실패한 경우만 통지 (빈 상태는 정상)
+      try { localStorage.setItem('hwpx_exceptions_corrupt_backup', stored); } catch (_) {}
+      console.error('예외 목록 로드 실패:', e);
+      setTimeout(() => showToast('⚠️ 저장된 예외 단어 목록을 읽지 못했습니다. 손상 데이터는 백업(hwpx_exceptions_corrupt_backup)에 보관했습니다.', 6000), 500);
+    }
   }
   renderExceptionList();
 }
 
 function saveExceptions() {
-  localStorage.setItem('hwpx_exceptions', JSON.stringify(state.exceptions));
+  try {
+    localStorage.setItem('hwpx_exceptions', JSON.stringify(state.exceptions));
+  } catch (e) {
+    console.error('예외 목록 저장 실패:', e);
+    showToast('⚠️ 예외 목록 저장 실패: ' + e.message, 5000);
+  }
 }
 
 function renderExceptionList() {
@@ -3715,6 +3746,9 @@ function wouldCreateParticleError(suggestion, text, pos, origLen) {
   return false;
 }
 
+// 검출 중 정규식 오류로 미적용된 규칙 수집 — 섹션마다 호출되므로 즉시 토스트하면
+// 도배된다. 분석 종료 시(analyzeBtn) 한 번만 요약 통지한다.
+const regexErrorRules = new Map(); // ruleId → 오류 메시지
 function detectIssuesInText(text) {
   const issues = [];
   for (const rule of state.rules) {
@@ -3758,6 +3792,7 @@ function detectIssuesInText(text) {
         }
       } catch (err) {
         console.error('정규식 오류 (규칙 ID:', rule.id, '):', err.message);
+        regexErrorRules.set(rule.id, err.message);
       }
     } else {
       let idx = 0;
@@ -3968,6 +4003,7 @@ analyzeBtn.addEventListener('click', async () => {
   setProgress(10);
   const allIssues = [];
   state.sectionAnalysis = {};
+  regexErrorRules.clear(); // 이번 분석의 정규식 오류만 집계
 
   const sectionNames = Object.keys(state.sectionFiles);
   for (let s = 0; s < sectionNames.length; s++) {
@@ -4019,6 +4055,16 @@ analyzeBtn.addEventListener('click', async () => {
   resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   analyzeBtn.disabled = false;
   showToast(`${totalFragments}개 블록·${totalChars.toLocaleString()}자 분석 → ${allIssues.length}건 검출`);
+  // 정규식 오류로 적용되지 못한 규칙이 있으면 조용히 넘어가지 않고 통지 (기존엔 console만)
+  if (regexErrorRules.size) {
+    const ids = [...regexErrorRules.keys()];
+    const names = ids.map(id => {
+      const r = state.rules.find(x => x.id === id);
+      return r ? (r.description || (r.original + '→' + r.replacement)) : '#' + id;
+    }).slice(0, 3);
+    const more = ids.length > 3 ? ` 외 ${ids.length - 3}건` : '';
+    setTimeout(() => showToast(`⚠️ 정규식 오류로 적용되지 못한 규칙 ${ids.length}개: ${names.join(', ')}${more} — 규칙 관리에서 정규식을 확인하세요.`, 6000), 1200);
+  }
 });
 
 function renderResults() {
@@ -5782,6 +5828,15 @@ loadExceptions();
   helpClose.addEventListener('click', () => helpModal.classList.remove('show'));
   helpModal.addEventListener('click', e => { if (e.target === helpModal) helpModal.classList.remove('show'); });
 
+  // 최초 방문 1회 자동 표시 — 잘 만든 가이드가 '?' 버튼으로만 열려 발견성이 낮았다.
+  // localStorage 플래그로 두 번째 방문부터는 뜨지 않는다.
+  try {
+    if (!localStorage.getItem('hwpx_guide_seen')) {
+      helpModal.classList.add('show');
+      localStorage.setItem('hwpx_guide_seen', '1');
+    }
+  } catch (_) { /* 프라이빗 모드 등 localStorage 불가 시 조용히 건너뜀 */ }
+
   document.querySelectorAll('.guide-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.guide-tab-btn').forEach(b => b.classList.remove('active'));
@@ -5930,6 +5985,44 @@ async function pdfTestOllamaConnection() {
       ? `✓ 연결됨 · ${model} 사용 가능`
       : `연결됨, ${model} 없음 → ollama pull ${model}`;
     result.style.color = found ? 'var(--success)' : 'var(--warning)';
+  } catch (e) {
+    result.textContent = `✗ 실패: ${e.message}`;
+    result.style.color = 'var(--danger)';
+  }
+}
+
+// Claude 키·모델 유효성 사전 확인 — Ollama처럼 실제 교정 실행 전에 실패를 알 수 있게 한다.
+// 최소 토큰 요청(max_tokens:1)이라 비용은 사실상 무시할 수준.
+async function pdfTestClaudeConnection() {
+  const apiKey = (document.getElementById('pdfClaudeApiKey').value || '').trim();
+  const model  = document.getElementById('pdfClaudeModel').value;
+  const result = document.getElementById('pdfClaudeTestResult');
+  if (!apiKey) { result.textContent = 'API 키를 먼저 입력하세요'; result.style.color = 'var(--warning)'; return; }
+  result.textContent = '키·모델 확인 중…';
+  result.style.color = 'var(--ink-faint)';
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: '.' }] }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.ok) {
+      result.textContent = `✓ 키·모델 정상 (${model.includes('haiku') ? 'Haiku' : 'Sonnet'})`;
+      result.style.color = 'var(--success)';
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      const msg = err.error?.message || `HTTP ${resp.status}`;
+      // 401=키 오류, 404=모델명 오류 — 흔한 원인을 짚어 준다
+      const hint = resp.status === 401 ? ' (키 확인)' : resp.status === 404 ? ' (모델명 확인)' : '';
+      result.textContent = `✗ 실패: ${msg}${hint}`;
+      result.style.color = 'var(--danger)';
+    }
   } catch (e) {
     result.textContent = `✗ 실패: ${e.message}`;
     result.style.color = 'var(--danger)';
@@ -7902,6 +7995,7 @@ document.getElementById('pdfClaudeKeyToggle').addEventListener('click', () => {
   inp.type = inp.type === 'password' ? 'text' : 'password';
 });
 document.getElementById('pdfOllamaTestBtn').addEventListener('click', pdfTestOllamaConnection);
+document.getElementById('pdfClaudeTestBtn').addEventListener('click', pdfTestClaudeConnection);
 document.getElementById('pdfClaudeBtn').addEventListener('click', pdfRunClaudeDetect);
 
 // 제공자 전환 시 설정 패널 토글
