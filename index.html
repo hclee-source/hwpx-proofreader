@@ -2323,7 +2323,7 @@ const PRESETS = [
       // §1.2 않 앞 띄어쓰기 (정규식 — "하지않으며" 등 전체 커버)
       { category: 'spacing', type: 'regex', original: '([가-힣])않', replacement: '$1 않', flags: 'g', description: '§1 않 앞 띄어쓰기 (하지않→하지 않)', confidence: 0.88 },
       // §1.5 있다/있는 앞 띄어쓰기 (정규식)
-      { category: 'spacing', type: 'regex', original: '([가-힣])있([다는면어])', replacement: '$1 있$2', flags: 'g', description: '§1.5 있다·있는 앞 띄어쓰기 (서있다→서 있다)', confidence: 0.85 },
+      { category: 'spacing', type: 'regex', original: '([가-힣])(?<!재미|맛|멋|값|뜻|빛|상관|관계|쓸모|가만|재수)있([다는면어])', replacement: '$1 있$2', flags: 'g', description: '§1.5 있다·있는 앞 띄어쓰기 (서있다→서 있다. 재미있다·맛있다 등 합성어 제외)', confidence: 0.85 },
       // §1.3.1 표준국어대사전 등재 명사 붙여쓰기
       { category: 'spacing', type: 'literal', original: '상호 작용', replacement: '상호작용', description: '§1.3.1 명사 붙여쓰기', confidence: 0.92 },
       { category: 'spacing', type: 'literal', original: '사회 구조', replacement: '사회구조', description: '§1.3.1 명사 붙여쓰기', confidence: 0.90 },
@@ -2335,9 +2335,11 @@ const PRESETS = [
       // §1.3.2 전문 용어·통용어 붙여쓰기
       { category: 'spacing', type: 'literal', original: '정리 해고', replacement: '정리해고', description: '§1.3.2 전문용어 붙여쓰기', confidence: 0.90 },
       // §1.4 그중·이외·이때 붙여쓰기
-      { category: 'spacing', type: 'literal', original: '그 중', replacement: '그중', description: '§1.4 그중 붙여쓰기', confidence: 0.90 },
-      { category: 'spacing', type: 'literal', original: '이 외', replacement: '이외', description: '§1.4 이외 붙여쓰기', confidence: 0.90 },
-      { category: 'spacing', type: 'literal', original: '이 때', replacement: '이때', description: '§1.4 이때 붙여쓰기', confidence: 0.90 },
+      // '그 중요한'·'이 외국인'·'이 때문에'처럼 뒤에 다른 단어가 이어지는 경우를 제외하기 위해
+      // 공백·조사·문장부호가 뒤따를 때만 붙인다 (리터럴이면 무차별 치환으로 본문 훼손)
+      { category: 'spacing', type: 'regex', original: '그 중(?=[\\s\\x01]|에|의|을|은|이|만|도|[.,!?]|$)', replacement: '그중', flags: 'g', description: '§1.4 그중 붙여쓰기 (그 중요한 → 제외)', confidence: 0.90 },
+      { category: 'spacing', type: 'regex', original: '이 외(?=[\\s\\x01]|에|의|는|도|[.,!?]|$)', replacement: '이외', flags: 'g', description: '§1.4 이외 붙여쓰기 (이 외국인 → 제외)', confidence: 0.90 },
+      { category: 'spacing', type: 'regex', original: '이 때(?=[\\s\\x01]|를|의|는|도|가|에|[.,!?]|$)', replacement: '이때', flags: 'g', description: '§1.4 이때 붙여쓰기 (이 때문에 → 제외)', confidence: 0.90 },
       // §1.4 좀 더 띄어쓰기
       { category: 'spacing', type: 'literal', original: '좀더', replacement: '좀 더', description: '§1.4 좀 더 띄어쓰기', confidence: 0.88 },
       // §1.3 단어 끝 외자 붙여쓰기 (수험서 빈출 합성어)
@@ -2350,7 +2352,9 @@ const PRESETS = [
       { category: 'punct', type: 'literal', original: '……', replacement: '…', description: '§3.3 줄임표 6점→3점', confidence: 0.99 },
       { category: 'punct', type: 'literal', original: '......', replacement: '…', description: '§3.3 줄임표(ASCII) 6점→3점', confidence: 0.97 },
       // §4.4 숫자+단위 붙여쓰기 (정규식)
-      { category: 'spacing', type: 'regex', original: '(\\d+)\\s+(개|명|권|장|번|호|회|차|학년|개월|년도|쪽|byte|GB|MB|KB|TB|kg|km|cm|mm|m²|m)', replacement: '$1$2', flags: 'g', description: '§4.4 숫자+단위 붙여쓰기', confidence: 0.87 },
+      // 긴 단위 우선 매칭 + 단위 뒤에 일반 한글이 이어지면 제외 ('표 5 개선'의 '개선'을 단위 '개'로 오인 방지).
+      // 단, 조사(은/는/이/가 등)는 단위 뒤에 정상적으로 붙으므로 허용
+      { category: 'spacing', type: 'regex', original: '(\\d+)\\s+(개월|학년|년도|byte|GB|MB|KB|TB|kg|km|cm|mm|m²|개|명|권|장|번|호|회|차|쪽|m)(?=$|[^가-힣]|[은는이가을를의도와과로에간씩당째쯤])', replacement: '$1$2', flags: 'g', description: '§4.4 숫자+단위 붙여쓰기 (5 개선→개선은 단위 아님, 제외)', confidence: 0.87 },
       // 부록1 용어 통일
       { category: 'terminology', type: 'literal', original: '디렉토리', replacement: '디렉터리', description: '부록1 골든래빗 표준 용어', confidence: 0.97 },
       { category: 'terminology', type: 'literal', original: '네비게이션', replacement: '내비게이션', description: '부록1 내비게이션(navigation) 외래어 표기', confidence: 0.96 },
@@ -2594,9 +2598,11 @@ const PRESETS = [
       { category: 'spacing', type: 'literal', original: '바없다', replacement: '바 없다', description: '바 없다: 바(의존명사) 띄어쓰기', confidence: 0.90 },
       // 데 (의존명사)
       { category: 'spacing', type: 'literal', original: '하는데있어', replacement: '하는 데 있어', description: '하는 데 있어: 데(의존명사) 띄어쓰기', confidence: 0.88 },
-      // 지 (의존명사 — 시간 경과)
-      { category: 'spacing', type: 'literal', original: '된지', replacement: '된 지', description: '된 지: 지(시간 경과 의존명사) 띄어쓰기', confidence: 0.90 },
-      { category: 'spacing', type: 'literal', original: '한지', replacement: '한 지', description: '한 지: 지(시간 경과 의존명사) 띄어쓰기 (한지=한지 종이와 혼동 주의)', confidence: 0.80 },
+      // 지 (의존명사 — 시간 경과). 어미 '-ㄴ지'(적절한지, 어떻게 된지 등)는 붙여 쓰므로
+      // 뒤에 시간 표현이 올 때만 띄운다 — 단순 리터럴이면 어미까지 전부 오탐
+      // 숫자·'몇'만으로는 수량 문맥('적절한지 3가지')과 구분이 안 되므로 시간 단위까지 요구
+      { category: 'spacing', type: 'regex', original: '된지(?=\\s?(?:[0-9]+\\s?(?:년|개월|달|주|일|시간|분|초)|몇\\s?(?:년|달|주|일|시간|분)|얼마|한참|오래|며칠|수년|수개월|수일|수십\\s?년))', replacement: '된 지', flags: 'g', description: '된 지: 시간 경과 의존명사만 띄움 (시작된지 3년→시작된 지 3년. 어미 -ㄴ지는 대상 아님)', confidence: 0.85 },
+      { category: 'spacing', type: 'regex', original: '한지(?=\\s?(?:[0-9]+\\s?(?:년|개월|달|주|일|시간|분|초)|몇\\s?(?:년|달|주|일|시간|분)|얼마|한참|오래|며칠|수년|수개월|수일|수십\\s?년))', replacement: '한 지', flags: 'g', description: '한 지: 시간 경과 의존명사만 띄움 (시작한지 3년→시작한 지 3년. \'적절한지\' 같은 어미 -ㄴ지는 붙임)', confidence: 0.85 },
     ]
   },
   {
@@ -2680,7 +2686,8 @@ const PRESETS = [
       { category: 'custom', type: 'literal', original: '가장 최대', replacement: '최대', description: '이중 표현: 가장+최대(最大=가장 큼)', confidence: 0.90 },
       { category: 'custom', type: 'literal', original: '가장 최소', replacement: '최소', description: '이중 표현: 가장+최소(最小=가장 작음)', confidence: 0.90 },
       // 과반수 이상
-      { category: 'custom', type: 'literal', original: '과반수 이상', replacement: '과반수', description: '이중 표현: 과반수(過半數=절반 이상)+이상', confidence: 0.92 },
+      // '과반수 이상이/을'처럼 조사가 이어지면 '이상'을 지웠을 때 조사가 어긋나므로(과반수이) 제외
+      { category: 'custom', type: 'regex', original: '과반수 이상(?![이가은을는으])', replacement: '과반수', flags: 'g', description: '이중 표현: 과반수(過半數=절반 이상)+이상 (뒤에 조사 오면 제외)', confidence: 0.92 },
       // 함께/서로 + 공-/상- (共·相 = 함께/서로)
       { category: 'custom', type: 'literal', original: '함께 공존', replacement: '공존', description: '이중 표현: 함께+공존(共存=함께 있음)', confidence: 0.90 },
       { category: 'custom', type: 'literal', original: '서로 상부상조', replacement: '상부상조', description: '이중 표현: 서로+상부상조(相扶相助=서로 도움)', confidence: 0.92 },
@@ -2753,8 +2760,13 @@ const PRESETS = [
     rules: [
       // 한글/영문/숫자 + 공백 + ( → 공백 제거
       { category: 'spacing', type: 'regex', original: '([가-힣A-Za-z0-9]) \\(', replacement: '$1(', flags: 'g', description: '단어 뒤 괄호 병기 공백 제거: 클로드 (Claude)→클로드(Claude)', confidence: 0.78 },
-      // 닫는 괄호 + 붙은 한글 → 공백 삽입 (보완 규칙)
-      { category: 'spacing', type: 'regex', original: '\\)([가-힣])', replacement: ') $1', flags: 'g', description: '닫는 괄호 뒤 한글 붙음 → 공백 삽입: (Claude)코드→(Claude) 코드', confidence: 0.82 },
+      // 닫는 괄호 + 붙은 한글 → 공백 삽입. 단, 조사·어미류가 이어지면 붙여 쓰는 게 맞으므로 제외
+      // (기존 규칙은 조사 구분 없이 전부 띄워 "데이터(data)는"을 "데이터(data) 는"으로 망가뜨렸음)
+      { category: 'spacing', type: 'regex', original: '(?<!\\((?:주|유|합|사|재))\\)(?!(?:이라서|이라는|이라고|이라도|이라면|이었다|입니다|인데도|임에도|는데도|이어서|에서는|에서도|에서의|으로는|으로도|으로서|으로써|이므로|와의|과의|인데|는데|은데|임을|임이|임은|임에|이라|라서|여서|까지|부터|처럼|보다|조차|마저|밖에|라는|라고|라도|라면|이란|이나|이며|이고|이다|였다|에서|에게|한테|으로|만이|만을|만은|만의|은|는|이|가|을|를|과|와|의|도|만|에|로|나|란|들|라|인|임)(?![가-힣]))([가-힣])', replacement: ') $1', flags: 'g', description: '닫는 괄호 뒤 한글 붙음 → 공백 삽입 (조사·서술격 어미와 (주)·(유) 등 법인 표기는 제외)', confidence: 0.82 },
+      // 닫는 괄호와 조사 사이의 잘못된 공백 제거: 데이터(data) 는 → 데이터(data)는
+      // ('이/만/나/들' 단독은 지시어·수사·동사와 겹쳐 오탐 위험이 있어 제외)
+      // '보다'는 부사(=더) 용법("(A) 보다 정확한")과 구분이 안 되므로 제거 대상에서 제외
+      { category: 'spacing', type: 'regex', original: '\\) (이라는|이라고|이라도|이라면|이었다|입니다|에서는|에서도|에서의|으로는|으로도|으로서|으로써|이므로|와의|과의|까지|부터|처럼|조차|마저|밖에|라는|라고|라도|라면|이란|이나|이며|이고|이다|였다|에서|에게|한테|으로|만이|만을|만은|만의|은|는|가|을|를|과|와|의|도|에|로|란)(?![가-힣])', replacement: ')$1', flags: 'g', description: '닫는 괄호와 조사 사이 공백 제거: 데이터(data) 는→데이터(data)는', confidence: 0.85 },
     ]
   },
 ];
@@ -2817,8 +2829,58 @@ function loadRules() {
   }
 
   state.rules.forEach((r, i) => { r.id = r.id || i; });
+  migrateBuiltinRules();
   renderRulesTable();
   updateRuleCategoriesSidebar();
+}
+
+// 내장 규칙 버그 수정 마이그레이션 — localStorage에 이미 저장된 구버전 규칙을 개선판으로 교체
+// (프리셋 정의만 고치면 이미 불러온 사용자는 계속 구버전 오탐을 겪으므로 필수)
+function migrateBuiltinRules() {
+  const cur = (pid, repl) => {
+    const p = PRESETS.find(x => x.id === pid);
+    return p && p.rules.find(x => x.replacement === repl);
+  };
+  // [현행 규칙, 구버전 판별 함수] — 저장된 규칙이 구버전 시그니처면 현행 정의로 교체
+  const MIGRATIONS = [
+    [cur('spacing_dependent_noun', '한 지'), o => o === '한지' || o.startsWith('한지(?=\\s?(?:[0-9]|')],
+    [cur('spacing_dependent_noun', '된 지'), o => o === '된지' || o.startsWith('된지(?=\\s?(?:[0-9]|')],
+    [cur('bracket_spacing', ') $1'),         o => o === '\\)([가-힣])' || o.startsWith('\\)(?!') || o.startsWith('(?<!\\(')],
+    [cur('bracket_spacing', ')$1'),          o => o.startsWith('\\) (')],
+    [cur('goldenrabbit_style', '$1 있$2'),   o => o === '([가-힣])있([다는면어])'],
+    [cur('goldenrabbit_style', '그중'),      o => o === '그 중' || o.startsWith('그 중(?=\\s|')],
+    [cur('goldenrabbit_style', '이외'),      o => o === '이 외' || o.startsWith('이 외(?=\\s|')],
+    [cur('goldenrabbit_style', '이때'),      o => o === '이 때' || o.startsWith('이 때(?=\\s|')],
+    [cur('goldenrabbit_style', '$1$2'),      o => o.startsWith('(\\d+)\\s+(개')],
+    [cur('redundant_expression', '과반수'),  o => o === '과반수 이상' || o === '과반수 이상(?![이가은을는])'],
+  ];
+  let changed = false;
+  state.rules.forEach(r => {
+    for (const [f, isOld] of MIGRATIONS) {
+      if (!f || r.replacement !== f.replacement || r.original === f.original) continue;
+      if (isOld(String(r.original || ''))) {
+        Object.assign(r, { type: f.type || 'regex', original: f.original, flags: f.flags, description: f.description, confidence: f.confidence });
+        changed = true;
+        break;
+      }
+    }
+  });
+
+  // 괄호 프리셋 사용자에게 '괄호+조사 사이 공백 제거' 보완 규칙을 1회만 추가
+  // (플래그 없이 매번 추가하면 사용자가 지워도 되살아나는 좀비 규칙이 됨)
+  const removal = cur('bracket_spacing', ')$1');
+  if (removal && !localStorage.getItem('hwpx_bracket_removal_added') &&
+      state.rules.some(r => r.replacement === ') $1') &&
+      !state.rules.some(r => r.replacement === ')$1')) {
+    state.rules.push({ id: Date.now(), ...removal });
+    localStorage.setItem('hwpx_bracket_removal_added', '1');
+    changed = true;
+  }
+
+  if (changed) {
+    saveRules();
+    setTimeout(() => showToast('내장 규칙 개선: 오탐을 만들던 괄호·한지·있다·수량 등 규칙이 수정판으로 교체되었습니다.', 4500), 600);
+  }
 }
 
 function saveRules() {
@@ -3186,6 +3248,7 @@ importInput.addEventListener('change', async e => {
     if (!Array.isArray(imported)) throw new Error('배열 형식이어야 합니다');
     imported.forEach(rule => { if (!rule.id) rule.id = Date.now() + Math.random(); });
     state.rules = [...state.rules, ...imported];
+    migrateBuiltinRules(); // 구버전 내장 규칙이 섞여 들어와도 즉시 수정판으로 교체
     saveRules();
     showToast(`${imported.length}개 규칙을 가져왔습니다`);
   } catch (err) {
@@ -3300,6 +3363,7 @@ csvImportInput.addEventListener('change', async e => {
     const text = await e.target.files[0].text();
     const imported = csvToRules(text);
     state.rules = [...state.rules, ...imported];
+    migrateBuiltinRules(); // 구버전 내장 규칙이 섞여 들어와도 즉시 수정판으로 교체
     saveRules();
     showToast(`${imported.length}개 규칙을 CSV에서 가져왔습니다`);
   } catch (err) {
@@ -3348,6 +3412,7 @@ document.getElementById('sheetImportConfirmBtn').addEventListener('click', async
       }
       state.rules = imported;
     }
+    migrateBuiltinRules(); // 구버전 내장 규칙이 섞여 들어와도 즉시 수정판으로 교체
     saveRules();
     document.getElementById('sheetImportModal').classList.remove('show');
     showToast(`구글 시트에서 ${imported.length}개 규칙을 가져왔습니다`, 4000);
@@ -3397,16 +3462,18 @@ function detectJamoSeparation(text) {
   const pattern = /[ᄀ-ᇿㄱ-ㆎ][ᄀ-ᇿㄱ-ㆎ\s]*/g;
   let m;
   while ((m = pattern.exec(text)) !== null) {
-    const raw = m[0].trim();
+    // 꼬리 공백은 매칭에서 제외 — 포함하면 교정 시 단어 사이 공백이 삭제됨 ('ㅎㅏ 좋다'→'하좋다')
+    const trimmed = m[0].replace(/\s+$/, '');
+    const raw = trimmed.trim();
     if (raw.length < 2) continue;
     const composed = composeHangul(raw);
     if (composed !== raw && composed.length < raw.length) {
-      const cs = Math.max(0, m.index - 20), ce = Math.min(text.length, m.index + m[0].length + 20);
+      const cs = Math.max(0, m.index - 20), ce = Math.min(text.length, m.index + trimmed.length + 20);
       issues.push({
         ruleId: -1, category: 'spelling', categoryName: '자모 분리',
-        position: m.index, original: m[0], suggestion: composed, confidence: 0.9,
+        position: m.index, original: trimmed, suggestion: composed, confidence: 0.9,
         contextBefore: text.substring(cs, m.index).replace(/\x01/g, ''),
-        contextAfter: text.substring(m.index + m[0].length, ce).replace(/\x01/g, ''),
+        contextAfter: text.substring(m.index + trimmed.length, ce).replace(/\x01/g, ''),
         selected: true
       });
     }
@@ -3462,8 +3529,10 @@ function detectColonSpacing(text) {
     const after  = text[pos + 1];
     if (after === '/')  continue; // :// — URL 프로토콜
     if (after === ':')  continue; // :: — 이중 콜론
+    if (after === '\\') continue; // C:\Users — 윈도우 경로
     if (/[\x00\x01]/.test(after)) continue; // 문단 구분자·마스킹 문자 → XML 오염 방지
     if (/\d/.test(before) || /\d/.test(after)) continue; // 10:30, 1:2 — 시간·비율
+    if (/[A-Za-z0-9_]/.test(before) && /[A-Za-z0-9_]/.test(after)) continue; // key:value — 코드·설정 토큰
     issues.push({
       ruleId: -4,
       category: 'spacing',
@@ -3524,8 +3593,14 @@ function detectIssuesInText(text) {
               continue;
             }
           }
-          const sFlags = (rule.flags || 'i').replace('g', '');
-          const suggestion = matched.replace(new RegExp(rule.original, sFlags), rule.replacement);
+          // 캡처 그룹($n)을 매치 결과에서 직접 치환 — matched 문자열만 재매칭하면
+          // lookahead/lookbehind가 문맥을 잃어 치환이 무력화되거나 유령 검출이 생김.
+          // $$(리터럴 $)·$&(전체 매치)·미참여 그룹('')은 String.replace 표준 동작을 따름
+          const suggestion = rule.replacement.replace(/\$(\$|&|\d+)/g, (s, d) => {
+            if (d === '$') return '$';
+            if (d === '&') return m[0];
+            return +d < m.length ? (m[+d] ?? '') : s;
+          });
           if (wouldCreateParticleError(suggestion, text, m.index, matched.length)) {
             if (m.index === regex.lastIndex) regex.lastIndex++;
             continue;
