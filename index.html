@@ -1639,6 +1639,37 @@
         </div>
       </div>
 
+      <!-- 문제집 검수 아코디언 — PDF 검수 기능의 HWPX 이식 (파일 로드만 하면 사용 가능) -->
+      <div class="accordion-panel" id="hwpxExamPanel">
+        <button class="accordion-header" onclick="toggleAccordion('hwpxExamPanel')">
+          <div class="accordion-header-left">
+            <span>📋 문제집 검수 — 문항·정답·해설 정합성 + 정답 분포</span>
+            <span class="accordion-count-badge">로컬 처리</span>
+          </div>
+          <span class="accordion-arrow">▼</span>
+        </button>
+        <div class="accordion-body collapsed">
+          <div style="padding-top:16px;">
+            <div style="font-size:11px;color:var(--ink-faint);margin-bottom:8px;">
+              문항 번호는 문단 시작의 <b>"12"</b>(단독 문단) 또는 <b>"12. " / "12) "</b> 형식을 인식합니다.
+              회차 헤더(기출변형 N회·제N회 등)가 짧은 문단으로 있으면 회차별로 집계합니다. 파일 로드 후 바로 실행할 수 있습니다.
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+              <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="hwpxExamFormat" value="inline" checked> 인라인 (문제마다 '답: ②')
+              </label>
+              <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="hwpxExamFormat" value="footer"> 하단 정답표 ('정답 1.② 2.④')
+              </label>
+              <button class="btn btn-secondary btn-sm" id="hwpxExamCheckBtn" disabled>정합성 검사</button>
+              <button class="btn btn-secondary btn-sm" id="hwpxAnswerStatsBtn" disabled>정답 분포 통계</button>
+            </div>
+            <div id="hwpxExamResult" style="font-size:12px;"></div>
+            <div id="hwpxAnswerStatsResult" style="font-size:12px;margin-top:8px;"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- 서식 편집 아코디언 -->
       <div class="accordion-panel" id="fmtAccordion">
         <button class="accordion-header" onclick="toggleAccordion('fmtAccordion')">
@@ -3129,6 +3160,10 @@ async function handleFile(file) {
     analyzeBtn.disabled = false;
     const finalBtn = document.getElementById('finalDownloadBtn');
     if (finalBtn) finalBtn.disabled = false;
+    // 문제집 검수는 오류 검출 없이도 파일만 있으면 실행 가능
+    hwpxExamState.report = null; hwpxExamState.stats = null;
+    ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = false; });
+    ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
     if (scEl) scEl.textContent = ` · ${sectionNames.length}개 섹션`;
     showToast(`파일 로드 완료 — ${sectionNames.length}개 섹션`);
 
@@ -4212,6 +4247,38 @@ document.getElementById('reportBtn').addEventListener('click', () => {
     r += `   신뢰도: ${Math.round(issue.confidence * 100)}%\n\n`;
   });
 
+  // 문제집 검수를 실행했다면 결과도 함께 수록
+  const CIRC5 = '①②③④⑤';
+  if (hwpxExamState.report) {
+    const e = hwpxExamState.report;
+    r += '-'.repeat(70) + `\n문제집 검수 (${e.format === 'inline' ? '인라인 정답' : '하단 정답표'})\n` + '-'.repeat(70) + '\n';
+    r += `  문항 ${e.nQ}개 · 정답 ${e.answersFound}개 (인라인 ${e.nInline} / 오답노트 ${e.nNote} / 접근Point ${e.nPoint})\n`;
+    if (e.findings.length) {
+      r += `  검출 후보 ${e.findings.length}건:\n`;
+      e.findings.forEach(f => { r += `   - [${f.kind}] 문항 ${f.question} (${f.page}): ${f.detail}\n`; });
+    } else {
+      r += '  정합성 이상 후보 없음\n';
+    }
+    r += '\n';
+  }
+  if (hwpxExamState.stats) {
+    const st = hwpxExamState.stats;
+    r += '-'.repeat(70) + '\n정답 분포 통계 (회차별)\n' + '-'.repeat(70) + '\n';
+    for (const rd of Object.keys(st.rounds).sort()) {
+      const d = st.rounds[rd];
+      const cells = [];
+      for (let ch = 1; ch <= st.maxChoice; ch++) cells.push(`${CIRC5[ch - 1] || ch}:${d.dist[ch] || 0}`);
+      r += `  ${rd} — ${cells.join(' ')} (계 ${d.total})\n`;
+    }
+    st.alerts.forEach(a => {
+      const d = a.kind === '동일 정답 연속'
+        ? a.detail.map(x => `${CIRC5[x.choice - 1] || x.choice} ${x.length}연속(문항 ${x.startQuestion}~)`).join(', ')
+        : a.detail.map(x => `${CIRC5[x.choice - 1] || x.choice} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ');
+      r += `  ⚠ [${a.round}] ${a.kind}: ${d}\n`;
+    });
+    r += '\n';
+  }
+
   triggerDownload(new Blob([r], { type: 'text/plain;charset=utf-8' }), state.file.name.replace(/\.hwpx$/i, '') + '_report.txt');
   showToast('리포트가 다운로드되었습니다');
 });
@@ -4365,6 +4432,9 @@ resetBtn.addEventListener('click', () => {
   const finalBtn2 = document.getElementById('finalDownloadBtn');
   if (finalBtn2) finalBtn2.disabled = true;
   resultsPanel.classList.add('hidden');
+  hwpxExamState.report = null; hwpxExamState.stats = null;
+  ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = true; });
+  ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
   showToast('초기화 완료');
 });
 
@@ -6161,6 +6231,10 @@ function isNegativeQuestion(questionHead) {
 function parseExamQuestions(format) {
   const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
   const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
+  // 보기 집계 전 제거용 — 정답 표기('답: ⑤'와 해설의 '정답: ⑤' 재진술 전부)와
+  // footer 정답표 항목('1.②')의 원문자는 보기가 아니다 (남으면 정답-보기 불일치 검사 무력화)
+  const ansStripRe = new RegExp('답\\s*[:：]\\s*' + EXAM_CIRCLED_CLASS, 'g');
+  const footerPairRe = new RegExp('\\d{1,3}\\s*[.·]\\s*' + EXAM_CIRCLED_CLASS, 'g');
   const questions = [];
   const footerAnswers = {};
   const footerByRound = {};
@@ -6176,7 +6250,9 @@ function parseExamQuestions(format) {
       footerByRound[currentRound] = Object.assign(footerByRound[currentRound] || {}, fa);
     }
     for (const q of splitQuestions(text)) {
-      const optChars = q.body.match(circledRe) || [];
+      let optBody = q.body.replace(ansStripRe, '');
+      if (format === 'footer') optBody = optBody.replace(footerPairRe, '');
+      const optChars = optBody.match(circledRe) || [];
       if (optChars.length < 2) continue; // 쪽번호 등 오분할 조각 제외
       const optSet = [...new Set(optChars.map(circledToInt))].sort((a, b) => a - b);
       const am = q.body.match(ansRe);
@@ -6228,8 +6304,14 @@ function pdfPushExtraIssue(pageIdx, pos, len, ruleId, category, original, sugges
 }
 
 // ── (B) 문제집 정합성 검수 — exam_check 이식 ──────────────
-function runExamCheck(format) {
-  const { questions, footerAnswers } = parseExamQuestions(format);
+// 파싱 결과에 대한 정합성 분석 — 소스 독립 (PDF·HWPX 공용)
+// footerByRound가 있으면 문항의 회차로 조회 — flat footerAnswers는 회차마다 같은
+// 문항 번호가 있을 때 마지막 회차 정답으로 덮어써져 교차 불일치 오탐·분포 왜곡을 만든다
+function examAnalyze(questions, footerAnswers, format, footerByRound) {
+  const footerAnsFor = q => {
+    const byRound = footerByRound && footerByRound[q.round];
+    return (byRound && byRound[q.num] != null) ? byRound[q.num] : footerAnswers[q.num];
+  };
   const findings = [];
   const nQ = questions.length;
   const nInline = questions.filter(q => q.inlineAnswer !== null).length;
@@ -6249,11 +6331,11 @@ function runExamCheck(format) {
       add(q, '오답노트 부재', '대다수 문항에 있는 오답노트가 이 문항엔 없음', 'medium');
     if (nPoint >= nQ * 0.7 && !q.hasPoint)
       add(q, '접근 Point 부재', '대다수 문항에 있는 접근 Point가 이 문항엔 없음', 'medium');
-    const ans = format === 'inline' ? q.inlineAnswer : footerAnswers[q.num];
+    const ans = format === 'inline' ? q.inlineAnswer : footerAnsFor(q);
     if (ans && q.optionsSeen.length && !q.optionsSeen.includes(ans))
       add(q, '정답-보기 불일치', `정답 ${ans}번인데 추출된 보기 번호는 [${q.optionsSeen.join(',')}] — 추출 누락 가능성 우선 확인`, 'medium');
     if (format === 'footer' && q.inlineAnswer !== null) {
-      const fa = footerAnswers[q.num];
+      const fa = footerAnsFor(q);
       if (fa && fa !== q.inlineAnswer)
         add(q, '정답 교차 불일치', `인라인 답 ${q.inlineAnswer} ≠ footer 답 ${fa}`, 'high');
     }
@@ -6261,7 +6343,7 @@ function runExamCheck(format) {
 
   // 정답 분포 (누적) — 전 보기(1..max) 검사
   const allAns = questions
-    .map(q => (format === 'inline' ? q.inlineAnswer : footerAnswers[q.num]))
+    .map(q => (format === 'inline' ? q.inlineAnswer : footerAnsFor(q)))
     .filter(a => a);
   const dist = {};
   allAns.forEach(a => { dist[a] = (dist[a] || 0) + 1; });
@@ -6276,9 +6358,21 @@ function runExamCheck(format) {
     if (ratio < 0.10) skew.push({ choice: ch, count: dist[ch] || 0, ratio });
   }
 
+  return {
+    format, nQ, nInline, nNote, nPoint,
+    answersFound: allAns.length,
+    negativeQuestions: questions.filter(q => q.negative).map(q => q.num),
+    distribution: dist, maxChoice, skew, findings,
+  };
+}
+
+function runExamCheck(format) {
+  const { questions, footerAnswers, footerByRound } = parseExamQuestions(format);
+  const report = examAnalyze(questions, footerAnswers, format, footerByRound);
+
   // 위치 있는 finding → 이슈로 push (문항 번호+질문 머리 하이라이트)
   pdfState.issues = pdfState.issues.filter(x => x.ruleId !== -6); // 이전 검수 결과 제거
-  for (const f of findings) {
+  for (const f of report.findings) {
     const page = pdfState.pages[f.pageIdx];
     const len = Math.min(f.bodyStart - f.numPos + 25, page.text.length - f.numPos);
     pdfPushExtraIssue(
@@ -6288,13 +6382,8 @@ function runExamCheck(format) {
     );
   }
 
-  pdfState.examReport = {
-    format, nQ, nInline, nNote, nPoint,
-    answersFound: allAns.length,
-    negativeQuestions: questions.filter(q => q.negative).map(q => q.num),
-    distribution: dist, maxChoice, skew, findings,
-  };
-  return pdfState.examReport;
+  pdfState.examReport = report;
+  return report;
 }
 
 // ── (B-보조) 회차별 정답 분포 통계 — answer_stats 이식 ─────
@@ -6325,11 +6414,9 @@ function longestRuns(seq, minLen) {
   return runs;
 }
 
-function runAnswerStats(format) {
+// 회차별 정답 분포 분석 — 소스 독립 (PDF·HWPX 공용)
+function answerStatsAnalyze(questions, footerByRound, format) {
   const SKEW = 0.10, DOMINANCE = 0.40, RUN_LEN = 4;
-
-  // exam_check와 동일한 공용 파서 사용 — 파싱 휴리스틱이 두 기능에서 갈라지지 않게 한다
-  const { questions, footerByRound } = parseExamQuestions(format);
   const roundSeq = {};    // round → [{num, ans}]
   for (const q of questions) {
     if (!roundSeq[q.round]) roundSeq[q.round] = [];
@@ -6353,10 +6440,7 @@ function runAnswerStats(format) {
     if (seq.length) rounds[r] = seq;
   }
 
-  if (!Object.keys(rounds).length) {
-    pdfState.answerStats = null;
-    return null;
-  }
+  if (!Object.keys(rounds).length) return null;
 
   // maxChoice는 정답 + 보기 번호 모두에서 유도 (정답 0회 보기 = 가장 극단적 편향도 검사)
   const maxAns = Math.max(...Object.values(rounds).flatMap(seq => seq.map(x => x.ans)));
@@ -6397,8 +6481,137 @@ function runAnswerStats(format) {
   }
   if (cumUnder.length) alerts.push({ round: '(누적)', kind: '과소편향', detail: cumUnder });
 
-  pdfState.answerStats = { format, rounds: roundStats, cumulative, totalAll, maxChoice, alerts };
+  return { format, rounds: roundStats, cumulative, totalAll, maxChoice, alerts };
+}
+
+function runAnswerStats(format) {
+  // exam_check와 동일한 공용 파서 사용 — 파싱 휴리스틱이 두 기능에서 갈라지지 않게 한다
+  const { questions, footerByRound } = parseExamQuestions(format);
+  pdfState.answerStats = answerStatsAnalyze(questions, footerByRound, format);
   return pdfState.answerStats;
+}
+
+// ── (B-HWPX) 문제집 검수 HWPX 어댑터 ──────────────────────
+// 섹션 XML → 검수용 텍스트. 오류 검출 전이면 즉석 파싱 (state에는 저장하지 않음)
+const hwpxExamState = { report: null, stats: null };
+
+function hwpxExamSections() {
+  return Object.keys(state.sectionFiles).map(name => {
+    const a = state.sectionAnalysis[name];
+    const parsed = (a && a.originalText) ? a : extractTextFromSection(state.sectionFiles[name]);
+    return { name, paragraphs: parsed.paragraphs, originalText: parsed.originalText };
+  });
+}
+
+// HWPX 문항 경계 — 조판 PDF와 달리 원고는 "12. 다음 중 …"처럼 번호와 지문이
+// 한 문단에 있는 경우가 많다. 단독 번호 문단(\n숫자\n)을 먼저 시도하고,
+// 부족하면 "숫자. " / "숫자) " 문단 시작 패턴으로 재시도해 더 많이 잡히는 쪽 사용.
+// 번호 뒤가 곧바로 원문자면 정답표 라인('1. ②')이므로 제외.
+function splitQuestionsHwpx(text) {
+  const strict = splitQuestions(text);
+  const re = new RegExp('(?:^|\\n)(\\d{1,3})[.)][ \\t]+(?!' + EXAM_CIRCLED_CLASS + ')', 'g');
+  const marks = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const numPos = m.index + (m[0][0] === '\n' ? 1 : 0);
+    marks.push({ num: parseInt(m[1], 10), numPos, bodyStart: m.index + m[0].length });
+  }
+  const out = [];
+  for (let i = 0; i < marks.length; i++) {
+    const bodyEnd = i + 1 < marks.length ? marks[i + 1].numPos - 1 : text.length;
+    out.push({ ...marks[i], bodyEnd, body: text.slice(marks[i].bodyStart, bodyEnd) });
+  }
+  return out.length > strict.length ? out : strict;
+}
+
+// 전체 섹션에서 문항 파싱 — parseExamQuestions의 HWPX 판.
+// 페이지 개념이 없으므로 회차 헤더는 짧은 문단(≤40자)에서 위치 기반으로 감지하고,
+// footer 정답표 항목도 출현 위치의 회차에 귀속시킨다.
+function parseExamQuestionsHwpx(format) {
+  const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
+  const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
+  // parseExamQuestions와 동일한 보기 집계 전 제거용 정규식 (주석 참고)
+  const ansStripRe = new RegExp('답\\s*[:：]\\s*' + EXAM_CIRCLED_CLASS, 'g');
+  const footerPairRe = new RegExp('\\d{1,3}\\s*[.·]\\s*' + EXAM_CIRCLED_CLASS, 'g');
+  const questions = [];
+  const footerAnswers = {};
+  const footerByRound = {};
+
+  for (const sec of hwpxExamSections()) {
+    if (!sec.originalText) continue;
+    const secLabel = sec.name.replace(/^Contents\//, '').replace(/\.xml$/, '');
+    // \x01은 originalText에서 문단 경계와 문단 내부 탭·줄바꿈 마커 두 용도로 쓰여 구분이 안 되므로
+    // paragraphs에서 재구성: 내부 \x01→공백("12.[탭]지문"이 문항 경계로 잡히도록), 경계→\n.
+    // 둘 다 1:1 치환이라 문단 오프셋(startInFull) 좌표계가 유지된다.
+    let text = '';
+    for (const p of sec.paragraphs) {
+      text += lexNormalize(p.text).replace(/\x01/g, ' ') + '\n';
+    }
+
+    const roundMarks = [];
+    for (const p of sec.paragraphs) {
+      const compact = p.text.replace(/[\s\x01]/g, '');
+      // 본문 참조 문구("기출변형 1회 12번 참고") 오탐 방지 — 헤더는 짧은 문단만 인정
+      if (!compact || compact.length > 40) continue;
+      for (const pat of EXAM_ROUND_PATTERNS) {
+        const rm = compact.match(pat);
+        if (rm) { roundMarks.push({ pos: p.startInFull, round: rm[0] }); break; }
+      }
+    }
+    const roundAt = pos => {
+      let r = '(회차 미상)';
+      for (const rm of roundMarks) { if (rm.pos <= pos) r = rm.round; else break; }
+      return r;
+    };
+
+    if (format === 'footer') {
+      const fre = new RegExp('(\\d{1,3})\\s*[.·]\\s*(' + EXAM_CIRCLED_CLASS + ')', 'g');
+      let fm;
+      while ((fm = fre.exec(text)) !== null) {
+        const num = parseInt(fm[1], 10), ans = circledToInt(fm[2]);
+        footerAnswers[num] = ans;
+        const r = roundAt(fm.index);
+        (footerByRound[r] = footerByRound[r] || {})[num] = ans;
+      }
+    }
+
+    for (const q of splitQuestionsHwpx(text)) {
+      let optBody = q.body.replace(ansStripRe, '');
+      if (format === 'footer') optBody = optBody.replace(footerPairRe, '');
+      const optChars = optBody.match(circledRe) || [];
+      if (optChars.length < 2) continue; // 번호 오분할 조각 제외
+      const optSet = [...new Set(optChars.map(circledToInt))].sort((a, b) => a - b);
+      const am = q.body.match(ansRe);
+      const firstOpt = q.body.search(circledRe);
+      const head = firstOpt >= 0 ? q.body.slice(0, firstOpt) : q.body.slice(0, 120);
+      questions.push({
+        num: q.num,
+        pageNo: secLabel, // 쪽 개념이 없어 위치 컬럼에 섹션명 표시
+        round: roundAt(q.numPos),
+        numPos: q.numPos,
+        bodyStart: q.bodyStart,
+        nOptions: optSet.length,
+        optionsSeen: optSet,
+        inlineAnswer: am ? circledToInt(am[1]) : null,
+        hasNote: q.body.includes('오답노트'),
+        hasPoint: q.body.includes('접근 Point') || q.body.replace(/\s/g, '').includes('접근Point'),
+        negative: isNegativeQuestion(head),
+      });
+    }
+  }
+  return { questions, footerAnswers, footerByRound };
+}
+
+function runExamCheckHwpx(format) {
+  const { questions, footerAnswers, footerByRound } = parseExamQuestionsHwpx(format);
+  hwpxExamState.report = examAnalyze(questions, footerAnswers, format, footerByRound);
+  return hwpxExamState.report;
+}
+
+function runAnswerStatsHwpx(format) {
+  const { questions, footerByRound } = parseExamQuestionsHwpx(format);
+  hwpxExamState.stats = answerStatsAnalyze(questions, footerByRound, format);
+  return hwpxExamState.stats;
 }
 
 // ── (C) 목차 쪽수 검증 — page_xcheck 이식 ─────────────────
@@ -7147,10 +7360,11 @@ function pdfExamFormat() {
   return document.querySelector('input[name="pdfExamFormat"]:checked')?.value || 'inline';
 }
 
-function renderExamReport(rep) {
-  const el = document.getElementById('pdfExamResult');
+function renderExamReport(rep, el, opts) {
+  el = el || document.getElementById('pdfExamResult');
+  opts = opts || {};
   if (!rep.nQ) {
-    el.innerHTML = '<span style="color:var(--warning);">문항을 찾지 못했습니다 — 문제집 형식 PDF인지, 정답 형식 선택이 맞는지 확인하세요.</span>';
+    el.innerHTML = '<span style="color:var(--warning);">문항을 찾지 못했습니다 — 문서가 문제집 형식인지, 정답 형식 선택이 맞는지 확인하세요.</span>';
     return;
   }
   let html = `<div style="margin-bottom:6px;">파싱: 문항 <b>${rep.nQ}</b>개 · 정답 <b>${rep.answersFound}</b>개 `
@@ -7162,13 +7376,14 @@ function renderExamReport(rep) {
   if (!rep.findings.length) {
     html += '<div style="color:var(--success);">정합성 이상 후보 없음 ✓</div>';
   } else {
-    html += `<div style="margin-bottom:4px;color:var(--warning);font-weight:700;">검출 후보 ${rep.findings.length}건 — 이슈 목록·주석 PDF에도 표시됩니다</div>`;
+    const tail = opts.plainNote ? '' : ' — 이슈 목록·주석 PDF에도 표시됩니다';
+    html += `<div style="margin-bottom:4px;color:var(--warning);font-weight:700;">검출 후보 ${rep.findings.length}건${tail}</div>`;
     html += `<table style="${AUDIT_TABLE}"><tr>`
-      + `<th style="${AUDIT_TH}">유형</th><th style="${AUDIT_TH}">문항</th><th style="${AUDIT_TH}">쪽</th>`
+      + `<th style="${AUDIT_TH}">유형</th><th style="${AUDIT_TH}">문항</th><th style="${AUDIT_TH}">${opts.locHeader || '쪽'}</th>`
       + `<th style="${AUDIT_TH}">내용</th><th style="${AUDIT_TH}">신뢰도</th></tr>`;
     for (const f of rep.findings) {
       html += `<tr><td style="${AUDIT_TD}white-space:nowrap;">${escapeHtml(f.kind)}</td>`
-        + `<td style="${AUDIT_TD}">${f.question}</td><td style="${AUDIT_TD}">${f.page}</td>`
+        + `<td style="${AUDIT_TD}">${f.question}</td><td style="${AUDIT_TD}">${escapeHtml(String(f.page ?? '—'))}</td>`
         + `<td style="${AUDIT_TD}">${escapeHtml(f.detail)}</td>`
         + `<td style="${AUDIT_TD}">${f.confidence === 'high' ? '높음' : '중간'}</td></tr>`;
     }
@@ -7178,8 +7393,8 @@ function renderExamReport(rep) {
   el.innerHTML = html;
 }
 
-function renderAnswerStats(stats) {
-  const el = document.getElementById('pdfAnswerStatsResult');
+function renderAnswerStats(stats, el) {
+  el = el || document.getElementById('pdfAnswerStatsResult');
   if (!stats) {
     el.innerHTML = '<span style="color:var(--warning);">정답을 하나도 찾지 못했습니다 — 정답 형식 선택을 확인하세요.</span>';
     return;
@@ -7269,6 +7484,23 @@ document.getElementById('pdfExamCheckBtn').addEventListener('click', async () =>
 document.getElementById('pdfAnswerStatsBtn').addEventListener('click', () => {
   const stats = runAnswerStats(pdfExamFormat());
   renderAnswerStats(stats);
+  if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+});
+
+// ── HWPX 문제집 검수 (교정 탭) ────────────────────────────
+function hwpxExamFormat() {
+  return document.querySelector('input[name="hwpxExamFormat"]:checked')?.value || 'inline';
+}
+
+document.getElementById('hwpxExamCheckBtn').addEventListener('click', () => {
+  const rep = runExamCheckHwpx(hwpxExamFormat());
+  renderExamReport(rep, document.getElementById('hwpxExamResult'), { locHeader: '구역', plainNote: true });
+  showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+});
+
+document.getElementById('hwpxAnswerStatsBtn').addEventListener('click', () => {
+  const stats = runAnswerStatsHwpx(hwpxExamFormat());
+  renderAnswerStats(stats, document.getElementById('hwpxAnswerStatsResult'));
   if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
 });
 
