@@ -2621,9 +2621,8 @@ const PRESETS = [
       { category: 'custom', type: 'literal', original: '에 관하여', replacement: '에 대해', description: '번역투: ~에 관하여 → ~에 대해 (about 번역)', confidence: 0.82 },
       { category: 'custom', type: 'literal', original: '에 관해서', replacement: '에 대해', description: '번역투: ~에 관해서 → ~에 대해', confidence: 0.82 },
       { category: 'custom', type: 'literal', original: '에 대하여', replacement: '에 대해', description: '번역투: ~에 대하여 → ~에 대해 (문어체→구어체)', confidence: 0.85 },
-      // ~하기 위하여/위해서 → ~하려고 (for 번역투)
-      { category: 'custom', type: 'literal', original: '하기 위하여', replacement: '하려고', description: '번역투: ~하기 위하여 → ~하려고 (for 번역)', confidence: 0.78 },
-      { category: 'custom', type: 'literal', original: '하기 위해서', replacement: '하려고', description: '번역투: ~하기 위해서 → ~하려고', confidence: 0.75 },
+      // ※ '하기 위하여/위해서 → 하려고' 규칙 제거함. 실제 원고의 '~하기 위해서는/위해서이다'에
+      //   적용하면 '~하려고는/하려고이다'라는 비문이 생겨 문법을 파괴함 (뒤 조사와 결합 불가).
       // ~에 있어서 → ~에서 (in/regarding 번역투)
       { category: 'custom', type: 'literal', original: '에 있어서는', replacement: '에서는', description: '번역투: ~에 있어서는 → ~에서는', confidence: 0.72 },
       { category: 'custom', type: 'literal', original: '에 있어서', replacement: '에서', description: '번역투: ~에 있어서 → ~에서 (문맥 확인 필요)', confidence: 0.68 },
@@ -2759,14 +2758,16 @@ const PRESETS = [
     description: '생성형 AI가 자주 만드는 "단어 (병기)" 패턴에서 불필요한 공백 제거. 한글·영문·숫자 뒤의 여는 괄호는 붙여 씀.',
     rules: [
       // 한글/영문/숫자 + 공백 + ( → 공백 제거
-      { category: 'spacing', type: 'regex', original: '([가-힣A-Za-z0-9]) \\(', replacement: '$1(', flags: 'g', description: '단어 뒤 괄호 병기 공백 제거: 클로드 (Claude)→클로드(Claude)', confidence: 0.78 },
-      // 닫는 괄호 + 붙은 한글 → 공백 삽입. 단, 조사·어미류가 이어지면 붙여 쓰는 게 맞으므로 제외
-      // (기존 규칙은 조사 구분 없이 전부 띄워 "데이터(data)는"을 "데이터(data) 는"으로 망가뜨렸음)
-      { category: 'spacing', type: 'regex', original: '(?<!\\((?:주|유|합|사|재))\\)(?!(?:이라서|이라는|이라고|이라도|이라면|이었다|입니다|인데도|임에도|는데도|이어서|에서는|에서도|에서의|으로는|으로도|으로서|으로써|이므로|와의|과의|인데|는데|은데|임을|임이|임은|임에|이라|라서|여서|까지|부터|처럼|보다|조차|마저|밖에|라는|라고|라도|라면|이란|이나|이며|이고|이다|였다|에서|에게|한테|으로|만이|만을|만은|만의|은|는|이|가|을|를|과|와|의|도|만|에|로|나|란|들|라|인|임)(?![가-힣]))([가-힣])', replacement: ') $1', flags: 'g', description: '닫는 괄호 뒤 한글 붙음 → 공백 삽입 (조사·서술격 어미와 (주)·(유) 등 법인 표기는 제외)', confidence: 0.82 },
+      // 여는 괄호 앞 공백 제거 — 괄호 안에 '글자'(영문/한글/한자)가 있는 병기일 때만.
+      // 실제 원고 검증: 순수 숫자 '(1)'·'(188*257)'는 번호/치수 표기라 붙이면 안 되고,
+      // 마침표 등 문장부호 뒤 '(1)'도 목록 번호이므로 앞의 [가-힣A-Za-z] 조건으로 제외됨.
+      { category: 'spacing', type: 'regex', original: '([가-힣A-Za-z]) \\((?=[^)\\x01]*[가-힣A-Za-z\\u4e00-\\u9fff])', replacement: '$1(', flags: 'g', description: '단어 뒤 괄호 병기 공백 제거: 클로드 (Claude)→클로드(Claude). 번호 (1)·치수 (188*257)는 제외', confidence: 0.80 },
       // 닫는 괄호와 조사 사이의 잘못된 공백 제거: 데이터(data) 는 → 데이터(data)는
       // ('이/만/나/들' 단독은 지시어·수사·동사와 겹쳐 오탐 위험이 있어 제외)
       // '보다'는 부사(=더) 용법("(A) 보다 정확한")과 구분이 안 되므로 제거 대상에서 제외
       { category: 'spacing', type: 'regex', original: '\\) (이라는|이라고|이라도|이라면|이었다|입니다|에서는|에서도|에서의|으로는|으로도|으로서|으로써|이므로|와의|과의|까지|부터|처럼|조차|마저|밖에|라는|라고|라도|라면|이란|이나|이며|이고|이다|였다|에서|에게|한테|으로|만이|만을|만은|만의|은|는|가|을|를|과|와|의|도|에|로|란)(?![가-힣])', replacement: ')$1', flags: 'g', description: '닫는 괄호와 조사 사이 공백 제거: 데이터(data) 는→데이터(data)는', confidence: 0.85 },
+      // ※ 기존 '닫는 괄호 뒤 한글 → 공백 삽입' 규칙은 제거함. 실제 IT 원고에서 ')' 뒤 한글은
+      //   거의 전부 조사·동사어미(추출(Extract)하고, (RDBMS)로는)라 오탐률이 100%였음.
     ]
   },
 ];
@@ -2845,8 +2846,7 @@ function migrateBuiltinRules() {
   const MIGRATIONS = [
     [cur('spacing_dependent_noun', '한 지'), o => o === '한지' || o.startsWith('한지(?=\\s?(?:[0-9]|')],
     [cur('spacing_dependent_noun', '된 지'), o => o === '된지' || o.startsWith('된지(?=\\s?(?:[0-9]|')],
-    [cur('bracket_spacing', ') $1'),         o => o === '\\)([가-힣])' || o.startsWith('\\)(?!') || o.startsWith('(?<!\\(')],
-    [cur('bracket_spacing', ')$1'),          o => o.startsWith('\\) (')],
+    [cur('bracket_spacing', '$1('),          o => o === '([가-힣A-Za-z0-9]) \\('], // 여는 괄호 → 병기 한정판
     [cur('goldenrabbit_style', '$1 있$2'),   o => o === '([가-힣])있([다는면어])'],
     [cur('goldenrabbit_style', '그중'),      o => o === '그 중' || o.startsWith('그 중(?=\\s|')],
     [cur('goldenrabbit_style', '이외'),      o => o === '이 외' || o.startsWith('이 외(?=\\s|')],
@@ -2866,11 +2866,24 @@ function migrateBuiltinRules() {
     }
   });
 
+  // 유해 규칙은 교체가 아니라 삭제 — 실제 원고 검증으로 오탐률 100%/문법 파괴 확인된 것들
+  const isDeadRule = r => {
+    const o = String(r.original || '');
+    // ① 닫는 괄호 뒤 공백 삽입 (추출(Extract)하고 → 추출(Extract) 하고 오탐)
+    if (r.replacement === ') $1' && (o === '\\)([가-힣])' || o.startsWith('\\)(?!') || o.startsWith('(?<!\\('))) return true;
+    // ② 하기 위해서/위하여 → 하려고 (하려고는·하려고이다 비문 생성)
+    if (r.replacement === '하려고' && (r.original === '하기 위해서' || r.original === '하기 위하여')) return true;
+    return false;
+  };
+  const before = state.rules.length;
+  state.rules = state.rules.filter(r => !isDeadRule(r));
+  if (state.rules.length !== before) changed = true;
+
   // 괄호 프리셋 사용자에게 '괄호+조사 사이 공백 제거' 보완 규칙을 1회만 추가
-  // (플래그 없이 매번 추가하면 사용자가 지워도 되살아나는 좀비 규칙이 됨)
+  // (여는 괄호 병기 규칙 보유 = 괄호 프리셋 사용자. 플래그로 좀비 재추가 방지)
   const removal = cur('bracket_spacing', ')$1');
   if (removal && !localStorage.getItem('hwpx_bracket_removal_added') &&
-      state.rules.some(r => r.replacement === ') $1') &&
+      state.rules.some(r => r.replacement === '$1(') &&
       !state.rules.some(r => r.replacement === ')$1')) {
     state.rules.push({ id: Date.now(), ...removal });
     localStorage.setItem('hwpx_bracket_removal_added', '1');
