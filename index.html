@@ -3161,7 +3161,8 @@ async function handleFile(file) {
     const finalBtn = document.getElementById('finalDownloadBtn');
     if (finalBtn) finalBtn.disabled = false;
     // 문제집 검수는 오류 검출 없이도 파일만 있으면 실행 가능
-    hwpxExamState.report = null; hwpxExamState.stats = null;
+    // (window.hwpxExamState는 PDF 모듈 스크립트가 정의 — 모듈이 죽어도 파일 로드는 계속돼야 하므로 가드)
+    if (window.hwpxExamState) { window.hwpxExamState.report = null; window.hwpxExamState.stats = null; }
     ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = false; });
     ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
     if (scEl) scEl.textContent = ` · ${sectionNames.length}개 섹션`;
@@ -4247,10 +4248,11 @@ document.getElementById('reportBtn').addEventListener('click', () => {
     r += `   신뢰도: ${Math.round(issue.confidence * 100)}%\n\n`;
   });
 
-  // 문제집 검수를 실행했다면 결과도 함께 수록
+  // 문제집 검수를 실행했다면 결과도 함께 수록 (window.hwpxExamState는 PDF 모듈 스크립트 소속 — 가드)
   const CIRC5 = '①②③④⑤';
-  if (hwpxExamState.report) {
-    const e = hwpxExamState.report;
+  const hwpxExam = window.hwpxExamState || {};
+  if (hwpxExam.report) {
+    const e = hwpxExam.report;
     r += '-'.repeat(70) + `\n문제집 검수 (${e.format === 'inline' ? '인라인 정답' : '하단 정답표'})\n` + '-'.repeat(70) + '\n';
     r += `  문항 ${e.nQ}개 · 정답 ${e.answersFound}개 (인라인 ${e.nInline} / 오답노트 ${e.nNote} / 접근Point ${e.nPoint})\n`;
     if (e.findings.length) {
@@ -4261,8 +4263,8 @@ document.getElementById('reportBtn').addEventListener('click', () => {
     }
     r += '\n';
   }
-  if (hwpxExamState.stats) {
-    const st = hwpxExamState.stats;
+  if (hwpxExam.stats) {
+    const st = hwpxExam.stats;
     r += '-'.repeat(70) + '\n정답 분포 통계 (회차별)\n' + '-'.repeat(70) + '\n';
     for (const rd of Object.keys(st.rounds).sort()) {
       const d = st.rounds[rd];
@@ -4432,7 +4434,7 @@ resetBtn.addEventListener('click', () => {
   const finalBtn2 = document.getElementById('finalDownloadBtn');
   if (finalBtn2) finalBtn2.disabled = true;
   resultsPanel.classList.add('hidden');
-  hwpxExamState.report = null; hwpxExamState.stats = null;
+  if (window.hwpxExamState) { window.hwpxExamState.report = null; window.hwpxExamState.stats = null; }
   ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => { document.getElementById(id).disabled = true; });
   ['hwpxExamResult', 'hwpxAnswerStatsResult'].forEach(id => { document.getElementById(id).innerHTML = ''; });
   showToast('초기화 완료');
@@ -6470,7 +6472,7 @@ function answerStatsAnalyze(questions, footerByRound, format) {
     if (under.length) alerts.push({ round: r, kind: '과소편향', detail: under });
     if (over.length)  alerts.push({ round: r, kind: '쏠림', detail: over });
     if (runs.length)  alerts.push({ round: r, kind: '동일 정답 연속', detail: runs });
-    roundStats[r] = { total, dist, under, over, runs };
+    roundStats[r] = { total, dist, under, over, runs, seq }; // seq: 문항-정답 목록 (CSV 내보내기용)
   }
 
   const totalAll = Object.values(cumulative).reduce((s, n) => s + n, 0);
@@ -6491,9 +6493,64 @@ function runAnswerStats(format) {
   return pdfState.answerStats;
 }
 
+// ── 정답 분포 표 내보내기 (PDF·HWPX 공용) ─────────────────
+const statsChoiceLabel = ch => '①②③④⑤'[ch - 1] || String(ch);
+
+// 분포 요약 표 직렬화 — sep '\t': 클립보드(엑셀·한글 표 붙여넣기), ',': CSV
+function answerStatsTable(stats, sep) {
+  const esc = v => {
+    v = String(v);
+    return (sep === ',' && /[",\n]/.test(v)) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  const lines = [];
+  const header = ['회차'];
+  for (let ch = 1; ch <= stats.maxChoice; ch++) header.push(statsChoiceLabel(ch));
+  header.push('계');
+  lines.push(header);
+  const row = (label, dist, total) => {
+    const cells = [label];
+    for (let ch = 1; ch <= stats.maxChoice; ch++) {
+      const n = dist[ch] || 0;
+      cells.push(total ? `${n} (${(n / total * 100).toFixed(1)}%)` : '0');
+    }
+    cells.push(total);
+    lines.push(cells);
+  };
+  for (const r of Object.keys(stats.rounds).sort()) row(r, stats.rounds[r].dist, stats.rounds[r].total);
+  row('누적', stats.cumulative, stats.totalAll);
+  return lines.map(cells => cells.map(esc).join(sep)).join('\n');
+}
+
+// CSV 전문: 분포 요약 + 회차별 문항-정답 목록 + 편향 경보
+function answerStatsCSV(stats) {
+  const esc = v => {
+    v = String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  let out = '정답 분포 통계\n' + answerStatsTable(stats, ',') + '\n';
+  out += '\n회차별 문항-정답 목록\n회차,문항,정답\n';
+  for (const r of Object.keys(stats.rounds).sort()) {
+    for (const x of (stats.rounds[r].seq || [])) {
+      out += `${esc(r)},${x.num},${statsChoiceLabel(x.ans)}\n`;
+    }
+  }
+  if (stats.alerts.length) {
+    out += '\n편향 경보 (임계: 과소 10% / 쏠림 40% / 연속 4개)\n회차,유형,내용\n';
+    for (const a of stats.alerts) {
+      const d = a.kind === '동일 정답 연속'
+        ? a.detail.map(x => `${statsChoiceLabel(x.choice)} ${x.length}연속(문항 ${x.startQuestion}부터)`).join('; ')
+        : a.detail.map(x => `${statsChoiceLabel(x.choice)} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join('; ');
+      out += `${esc(a.round)},${esc(a.kind)},${esc(d)}\n`;
+    }
+  }
+  return out;
+}
+
 // ── (B-HWPX) 문제집 검수 HWPX 어댑터 ──────────────────────
 // 섹션 XML → 검수용 텍스트. 오류 검출 전이면 즉석 파싱 (state에는 저장하지 않음)
-const hwpxExamState = { report: null, stats: null };
+// 이 스크립트 전체가 PDF 모듈 IIFE 내부라 window에 노출해야
+// 파일 로드·초기화·리포트(별도 스크립트)에서 접근 가능
+const hwpxExamState = window.hwpxExamState = { report: null, stats: null };
 
 function hwpxExamSections() {
   return Object.keys(state.sectionFiles).map(name => {
@@ -7393,8 +7450,9 @@ function renderExamReport(rep, el, opts) {
   el.innerHTML = html;
 }
 
-function renderAnswerStats(stats, el) {
+function renderAnswerStats(stats, el, opts) {
   el = el || document.getElementById('pdfAnswerStatsResult');
+  opts = opts || {};
   if (!stats) {
     el.innerHTML = '<span style="color:var(--warning);">정답을 하나도 찾지 못했습니다 — 정답 형식 선택을 확인하세요.</span>';
     return;
@@ -7433,7 +7491,27 @@ function renderAnswerStats(stats, el) {
   } else {
     html += '<div style="margin-top:6px;color:var(--success);">편향 후보 없음 ✓ (임계: 과소 10% / 쏠림 40% / 연속 4개)</div>';
   }
+  html += '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button class="btn btn-secondary btn-sm" data-stats-copy>📋 표 복사</button>'
+    + '<button class="btn btn-secondary btn-sm" data-stats-csv>⬇ CSV 다운로드</button>'
+    + '<span style="font-size:11px;color:var(--ink-faint);align-self:center;">복사한 표는 엑셀·한글에 바로 붙여넣을 수 있습니다. CSV에는 문항별 정답 목록·편향 경보도 포함됩니다.</span></div>';
   el.innerHTML = html;
+
+  const fileBase = opts.fileBase || 'document';
+  el.querySelector('[data-stats-copy]').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(answerStatsTable(stats, '\t'));
+      showToast('분포 표를 클립보드에 복사했습니다');
+    } catch (e) {
+      showToast('클립보드 복사 실패: ' + e.message);
+    }
+  });
+  el.querySelector('[data-stats-csv]').addEventListener('click', () => {
+    // UTF-8 BOM: 엑셀이 한글 CSV를 깨지지 않게 읽도록
+    triggerDownload(new Blob([String.fromCharCode(0xFEFF) + answerStatsCSV(stats)], { type: 'text/csv;charset=utf-8' }),
+      fileBase + '_answer_stats.csv');
+    showToast('정답 분포 CSV가 다운로드되었습니다');
+  });
 }
 
 function renderXcheckReport(x) {
@@ -7483,7 +7561,7 @@ document.getElementById('pdfExamCheckBtn').addEventListener('click', async () =>
 
 document.getElementById('pdfAnswerStatsBtn').addEventListener('click', () => {
   const stats = runAnswerStats(pdfExamFormat());
-  renderAnswerStats(stats);
+  renderAnswerStats(stats, null, { fileBase: (pdfState.file?.name || 'document.pdf').replace(/\.[^.]+$/, '') });
   if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
 });
 
@@ -7500,7 +7578,8 @@ document.getElementById('hwpxExamCheckBtn').addEventListener('click', () => {
 
 document.getElementById('hwpxAnswerStatsBtn').addEventListener('click', () => {
   const stats = runAnswerStatsHwpx(hwpxExamFormat());
-  renderAnswerStats(stats, document.getElementById('hwpxAnswerStatsResult'));
+  renderAnswerStats(stats, document.getElementById('hwpxAnswerStatsResult'),
+    { fileBase: (state.file?.name || 'document.hwpx').replace(/\.[^.]+$/, '') });
   if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
 });
 

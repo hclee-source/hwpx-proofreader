@@ -17,6 +17,7 @@ if (start < 0 || parserStart < 0 || end < 0) { console.error('추출 마커를 �
 const lexNormSlice = src.slice(start, src.indexOf('// term의 모든 출현 오프셋'));
 const examSlice = src.slice(parserStart, end);
 
+global.window = global; // hwpxExamState가 window에 노출되므로 (PDF 모듈 IIFE 밖 접근용)
 global.state = { sectionFiles: {}, sectionAnalysis: {} };
 global.pdfState = { pages: [], issues: [] };
 global.extractTextFromSection = () => { throw new Error('sectionAnalysis가 제공되면 호출되지 않아야 함'); };
@@ -24,7 +25,7 @@ global.mapCharRangeToWords = () => [0];
 global.PDF_CAT_NAME = { exam: '문제집 검수' };
 
 eval(lexNormSlice + '\n' + examSlice
-  + '\n; global._t = { splitQuestionsHwpx, parseExamQuestionsHwpx, runExamCheckHwpx, runAnswerStatsHwpx, examAnalyze, answerStatsAnalyze, hwpxExamState, runExamCheck, runAnswerStats };');
+  + '\n; global._t = { splitQuestionsHwpx, parseExamQuestionsHwpx, runExamCheckHwpx, runAnswerStatsHwpx, examAnalyze, answerStatsAnalyze, hwpxExamState, runExamCheck, runAnswerStats, answerStatsTable, answerStatsCSV };');
 const T = global._t;
 
 // ── 합성 섹션 빌더: 문단 배열 → originalText(\x01 구분) + paragraphs ──
@@ -204,6 +205,36 @@ global.pdfState = { issues: [], pages: [
 ] };
 prep = T.runExamCheck('inline');
 check('P3-재진술 오염 무시하고 불일치 검출', prep.findings.some(f => f.kind === '정답-보기 불일치' && f.question === 1), prep.findings);
+
+// ══════════════ 표 내보내기 (answerStatsTable · answerStatsCSV) ══════════════
+
+// ── 시나리오 E1: 분포 요약 표 (TSV) ──
+setDoc([
+  '기출변형 1회',
+  ...Q(1, false, 2), ...Q(2, false, 4), ...Q(3, false, 1), ...Q(4, false, 3),
+]);
+const statsE = T.runAnswerStatsHwpx('inline');
+const tsv = T.answerStatsTable(statsE, '\t');
+const tsvLines = tsv.split('\n');
+check('E1-TSV 헤더 (①~④ + 계)', tsvLines[0] === ['회차', '①', '②', '③', '④', '계'].join('\t'), tsvLines[0]);
+check('E1-TSV 행 수 (헤더+회차+누적)', tsvLines.length === 3, tsvLines);
+check('E1-TSV 회차 행 내용', tsvLines[1].startsWith('기출변형1회\t1 (25.0%)'), tsvLines[1]);
+check('E1-TSV 누적 행', tsvLines[2].startsWith('누적\t') && tsvLines[2].endsWith('\t4'), tsvLines[2]);
+
+// ── 시나리오 E2: CSV 전문 (문항별 목록 포함, 경보 없음) ──
+const csvE = T.answerStatsCSV(statsE);
+check('E2-CSV 요약 표 포함', csvE.includes('회차,①,②,③,④,계'), csvE.slice(0, 120));
+check('E2-CSV 문항-정답 목록', csvE.includes('기출변형1회,1,②') && csvE.includes('기출변형1회,4,③'), csvE);
+check('E2-CSV 경보 섹션 없음 (편향 없음)', !csvE.includes('편향 경보'), csvE);
+
+// ── 시나리오 E3: 편향 경보가 CSV에 수록되는지 ──
+setDoc([
+  '제1회',
+  ...Q(1, false, 2), ...Q(2, false, 2), ...Q(3, false, 2), ...Q(4, false, 2), ...Q(5, false, 1),
+]);
+const statsE3 = T.runAnswerStatsHwpx('inline');
+const csvE3 = T.answerStatsCSV(statsE3);
+check('E3-CSV 편향 경보 수록', csvE3.includes('편향 경보') && csvE3.includes('동일 정답 연속'), csvE3);
 
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURE(S)`);
 process.exit(fails ? 1 : 0);
