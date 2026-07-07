@@ -748,6 +748,8 @@
   .rule-category.terminology { background: var(--success-soft);  color: var(--success); }
   .rule-category.custom      { background: var(--accent-soft);   color: var(--accent); }
   .rule-category.ai          { background: #ede6ff; color: #5b21b6; }
+  .rule-category.consistency { background: #d9f2f0; color: #0e7c72; }
+  .rule-category.exam        { background: #fde7f1; color: #b0246f; }
 
   .rule-code {
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -2016,6 +2018,13 @@
         <input type="checkbox" id="pdfUseColon" style="margin-top:2px;">
         <span style="font-size:12px;color:var(--ink-soft);">콜론 뒤 공백 검출 (시간·비율·URL 제외)</span>
       </label>
+      <label class="jamo-toggle-wrap" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseConsistency" checked style="margin-top:2px;">
+        <div>
+          <span style="font-size:12px;color:var(--ink-soft);">표기 일관성 검사 (용어사전)</span>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">문서 전체 빈도 대조 — 소수파 표기 위치 검출</div>
+        </div>
+      </label>
     </div>
 
     <!-- AI 교정 섹션 (Ollama / Claude 통합) -->
@@ -2160,6 +2169,63 @@
           <div id="pdfPageContainer" style="position:relative;display:inline-block;width:100%;"></div>
         </div>
         <div class="pdf-issue-list" id="pdfIssueListEl"></div>
+      </div>
+
+      <!-- 문서 검수 패널 (표기 일관성 · 문제집 · 목차) — pdf-proofreader 스킬 이식 -->
+      <div class="accordion-panel" id="pdfAuditPanel" style="margin-top:16px;">
+        <button class="accordion-header" onclick="toggleAccordion('pdfAuditPanel')">
+          <div class="accordion-header-left">
+            <span>📋 문서 검수 — 표기 일관성 · 문제집 · 목차</span>
+            <span class="accordion-count-badge" id="pdfAuditBadge">로컬 처리</span>
+          </div>
+          <span class="accordion-arrow">▼</span>
+        </button>
+        <div class="accordion-body collapsed">
+          <div style="padding-top:16px;display:flex;flex-direction:column;gap:22px;">
+
+            <!-- 1. 표기 일관성 요약 -->
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px;">표기 일관성 대조
+                <span style="font-weight:400;color:var(--ink-faint);font-size:11px;">— 오류 검출 실행 시 자동 분석 (용어사전 23쌍)</span>
+              </div>
+              <div id="pdfConsistencySummary" style="font-size:12px;color:var(--ink-faint);">아직 검출을 실행하지 않았습니다.</div>
+            </div>
+
+            <!-- 2. 문제집 검수 -->
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px;">문제집 검수
+                <span style="font-weight:400;color:var(--ink-faint);font-size:11px;">— 문항·정답·해설 정합성 + 정답 분포 편향</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+                <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                  <input type="radio" name="pdfExamFormat" value="inline" checked> 인라인 (문제마다 '답: ②')
+                </label>
+                <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                  <input type="radio" name="pdfExamFormat" value="footer"> 하단 정답표 ('정답 1.② 2.④')
+                </label>
+                <button class="btn btn-secondary btn-sm" id="pdfExamCheckBtn" disabled>정합성 검사</button>
+                <button class="btn btn-secondary btn-sm" id="pdfAnswerStatsBtn" disabled>정답 분포 통계</button>
+              </div>
+              <div id="pdfExamResult" style="font-size:12px;"></div>
+              <div id="pdfAnswerStatsResult" style="font-size:12px;margin-top:8px;"></div>
+            </div>
+
+            <!-- 3. 목차 쪽수 검증 -->
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px;">목차 쪽수 검증
+                <span style="font-weight:400;color:var(--ink-faint);font-size:11px;">— 물리쪽↔인쇄쪽 오프셋 + 목차 대조</span>
+              </div>
+              <div style="font-size:11px;color:var(--ink-faint);margin-bottom:6px;">
+                목차를 한 줄씩 <b>"제목 … 쪽수"</b> 형식으로 붙여넣으면 실제 본문 위치와 대조합니다. 비워두면 쪽번호 오프셋 일관성만 검사합니다.
+              </div>
+              <textarea id="pdfTocInput" rows="4" placeholder="1장 데이터의 이해 15&#10;2장 통계 분석 47"
+                style="width:100%;box-sizing:border-box;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);resize:vertical;font-family:inherit;"></textarea>
+              <button class="btn btn-secondary btn-sm" id="pdfXcheckBtn" disabled style="margin-top:6px;">쪽수 검증 실행</button>
+              <div id="pdfXcheckResult" style="font-size:12px;margin-top:8px;"></div>
+            </div>
+
+          </div>
+        </div>
       </div>
 
       <!-- 다운로드 -->
@@ -2768,6 +2834,26 @@ const PRESETS = [
       { category: 'spacing', type: 'regex', original: '\\) (이라는|이라고|이라도|이라면|이었다|입니다|에서는|에서도|에서의|으로는|으로도|으로서|으로써|이므로|와의|과의|까지|부터|처럼|조차|마저|밖에|라는|라고|라도|라면|이란|이나|이며|이고|이다|였다|에서|에게|한테|으로|만이|만을|만은|만의|은|는|가|을|를|과|와|의|도|에|로|란)(?![가-힣])', replacement: ')$1', flags: 'g', description: '닫는 괄호와 조사 사이 공백 제거: 데이터(data) 는→데이터(data)는', confidence: 0.85 },
       // ※ 기존 '닫는 괄호 뒤 한글 → 공백 삽입' 규칙은 제거함. 실제 IT 원고에서 ')' 뒤 한글은
       //   거의 전부 조사·동사어미(추출(Extract)하고, (RDBMS)로는)라 오탐률이 100%였음.
+    ]
+  },
+  {
+    id: 'lexicon_goldenrabbit',
+    name: '골든래빗 검수 사전 (실사례 확정분)',
+    description: '빅분기·AICE·리눅스마스터 실제 검수에서 확정된 오탈자·띄어쓰기 패턴. 표기쌍 빈도 대조는 PDF 모드의 "표기 일관성 검사"가 담당.',
+    rules: [
+      // ── 확정 오탈자 (실사례) ──
+      { category: 'punct',    type: 'regex',   original: '다\\.\\.(?!\\.)', replacement: '다.', flags: 'g', description: '이중 마침표: 한다.. → 한다. (말줄임표 …는 제외)', confidence: 0.95 },
+      { category: 'spelling', type: 'literal', original: '활률', replacement: '확률', description: '오타: 활률→확률 (3회 모의 Q40 실사례)', confidence: 0.99 },
+      { category: 'spelling', type: 'literal', original: '전다해야', replacement: '전달해야', description: '오타: 전다해야→전달해야 (AICE p49 실사례)', confidence: 0.99 },
+      { category: 'punct',    type: 'regex',   original: '(접근 Point!\\s*){2,}', replacement: '접근 Point! ', flags: 'g', description: '레이블 중복: 접근 Point! 2회 이상 반복 (12회 Q42 실사례)', confidence: 0.95 },
+      { category: 'punct',    type: 'regex',   original: '(\\d{1,3}\\.\\s*[①-⑤➀-➄])(\\d{1,3}\\.)', replacement: '$1 $2', flags: 'g', description: '정답 번호 붙음: 52. ②53. → 52. ② 53. (조판 누락)', confidence: 0.92 },
+      { category: 'spelling', type: 'literal', original: 'UnKnown', replacement: 'Unknown', description: '대소문자 혼용 고유명: UnKnown→Unknown', confidence: 0.97 },
+      // ── 띄어쓰기 패턴 (실사례) ──
+      { category: 'spacing', type: 'regex', original: "([가-힣0-9’']) 처럼(?![가-힣])", replacement: '$1처럼', flags: 'g', description: "조사 '처럼' 분리: 29세 처럼 → 29세처럼", confidence: 0.88 },
+      { category: 'spacing', type: 'regex', original: '(\\d+년) 간(?![가-힣])', replacement: '$1간', flags: 'g', description: "접미사 '간' 분리: 10년 간 → 10년간", confidence: 0.88 },
+      { category: 'spacing', type: 'regex', original: '([가-힣]{2,}) (상에서)', replacement: '$1$2', flags: 'g', description: "접미사 '상' 분리: 네트워크 상에서 → 네트워크상에서", confidence: 0.72 },
+      { category: 'spacing', type: 'regex', original: '([가-힣]{2,}) (하에)(?![가-힣])', replacement: '$1$2', flags: 'g', description: "'하에' 분리: 진행 하에 → 진행하에", confidence: 0.70 },
+      { category: 'spacing', type: 'regex', original: '(\\d)(사이)(?![가-힣])', replacement: '$1 $2', flags: 'g', description: "숫자+'사이' 붙음: 0과 1사이 → 0과 1 사이", confidence: 0.70 },
     ]
   },
 ];
@@ -5860,6 +5946,8 @@ const PDF_CAT_NAME = {
   punct:       '문장부호',
   terminology: '용어 일관성',
   custom:      '기타',
+  consistency: '표기 일관성',
+  exam:        '문제집 검수',
 };
 function toCatName(issue) {
   if (issue.ruleId === -99) return 'AI 교정';
@@ -5867,8 +5955,535 @@ function toCatName(issue) {
   if (issue.ruleId === -2)  return '조사공백';
   if (issue.ruleId === -3)  return '이중공백';
   if (issue.ruleId === -4)  return '콜론 뒤 공백';
+  if (issue.ruleId === -5)  return '표기 일관성';
+  if (issue.ruleId === -6)  return '문제집 검수';
   if (issue.categoryName)   return issue.categoryName;
   return PDF_CAT_NAME[issue.category] || '기타';
+}
+
+// ════════════════════════════════════════════════════════
+// 문서 검수 모듈 (pdf-proofreader 스킬 이식)
+//  - 표기 일관성 (lexicon 빈도 대조)  ruleId -5
+//  - 문제집 검수 (exam_check)         ruleId -6
+//  - 정답 분포 통계 (answer_stats)
+//  - 목차 쪽수 검증 (page_xcheck)
+// 모두 브라우저 로컬 처리 — AI 호출 없음
+// ════════════════════════════════════════════════════════
+
+// ── 용어 사전 (골든래빗 검수 세션 확정분) ─────────────────
+// policy: 출판사 정책 의존 표기 (단정 금지, 통일 필요성만 보고)
+// skipBefore: 해당 접두어 뒤 매칭 제외 (부분 문자열 오탐 방지)
+const PDF_LEXICON_PAIRS = [
+  { preferred: '대푯값',   variants: ['대표값'],   rule: '사이시옷 [대ː푣깝]' },
+  { preferred: '절댓값',   variants: ['절대값'],   rule: '사이시옷 [절땓깝]' },
+  { preferred: '최댓값',   variants: ['최대값'],   rule: '사이시옷' },
+  { preferred: '최솟값',   variants: ['최소값'],   rule: '사이시옷' },
+  { preferred: '임곗값',   variants: ['임계값'],   rule: '사이시옷 — 그림 캡션에서 통일 누락 빈발' },
+  { preferred: '중앙값',   variants: ['중위수'],   rule: '현행 통계 표준 용어' },
+  { preferred: '최빈값',   variants: ['최빈수'],   rule: '현행 통계 표준 용어' },
+  { preferred: '초매개변수', variants: ['하이퍼파라미터'], rule: '빅분기 공식 용어', policy: true },
+  { preferred: '크루스칼-왈리스', variants: ['크루스칼-월리스'], rule: 'Kruskal-Wallis 표준 음차' },
+  { preferred: '타깃',     variants: ['타겟'],     rule: '외래어 표기법', skipAfter: ['팅'] },
+  { preferred: '디렉터리', variants: ['디렉토리'], rule: '외래어 표기법' },
+  { preferred: '애플리케이션', variants: ['어플리케이션'], rule: '외래어 표기법' },
+  { preferred: '데이터',   variants: ['데이타'],   rule: '외래어 표기법' },
+  { preferred: '콘텐츠',   variants: ['컨텐츠'],   rule: '외래어 표기법' },
+  { preferred: '메시지',   variants: ['메세지'],   rule: '외래어 표기법' },
+  { preferred: '레이블',   variants: ['라벨'],     rule: 'ML 문맥에서 레이블 권장', policy: true, skipAfter: ['링'] },
+  { preferred: '메타데이터', variants: ['메타 데이터'], rule: '합성어 붙여쓰기 (실검수 25 vs 1)' },
+  { preferred: '데이터프레임', variants: ['데이터 프레임'], rule: '합성어 붙여쓰기' },
+  { preferred: '이상치',   variants: ['이상값'],   rule: '책 다수 표기 기준', policy: true },
+  { preferred: '과적합',   variants: ['과대적합'], rule: '책 다수 표기 기준', policy: true },
+  { preferred: '결정 트리', variants: ['의사결정나무', '결정트리'], rule: '책 다수 표기 기준 (실검수 36 vs 3)', policy: true, skipBefore: ['의사'] },
+  { preferred: '배경지식', variants: ['배경 지식'], rule: '합성어 (실검수: 동일 페이지 혼용 발견)' },
+  { preferred: '살아 있는', variants: ['살아있는'], rule: '보조용언 띄어쓰기 (개인정보 법령 문맥)', policy: true },
+];
+// 영문 뒤 조사 후보 — 받침(발음) 판정은 사람 몫이므로 낮은 신뢰도 + 기본 미선택
+const PDF_LEXICON_JOSA = [
+  { re: /[A-Za-z]{3,}[을를](?=[ \n.,)])/g, note: '영단어 뒤 을/를 — 발음(받침) 기준 확인 필요 (예: Scaler을→를)' },
+  { re: /[A-Za-z]{3,}[이가](?=[ \n.,)])/g, note: '영단어 뒤 이/가 — 발음(받침) 기준 확인 필요 (예: None라면→None이라면)' },
+];
+
+// NBSP·전각공백을 일반 공백으로 (길이 보존 → charPos 오프셋 유지)
+function lexNormalize(t) {
+  return t.replace(/\xa0/g, ' ').replace(/　/g, ' ');
+}
+
+// term의 모든 출현 오프셋 (좌측 영숫자 인접·skipBefore 접두어·skipAfter 접미어 제외)
+function lexFindAll(text, term, skipBefore, skipAfter) {
+  const out = [];
+  let i = 0;
+  while ((i = text.indexOf(term, i)) !== -1) {
+    let ok = true;
+    const prev = i > 0 ? text[i - 1] : '';
+    if (/[A-Za-z0-9가-힣]/.test(prev) && term.length <= 3) ok = false; // 짧은 표기는 단어 경계 필수
+    if (ok && skipBefore) {
+      for (const p of skipBefore) {
+        if (text.slice(Math.max(0, i - p.length), i) === p) { ok = false; break; }
+      }
+    }
+    if (ok && skipAfter) { // 파생어 오탐 방지: '타겟팅'의 '타겟', '라벨링'의 '라벨'
+      for (const s of skipAfter) {
+        if (text.startsWith(s, i + term.length)) { ok = false; break; }
+      }
+    }
+    if (ok) out.push(i);
+    i += term.length;
+  }
+  return out;
+}
+
+// ── 표기 일관성 검사: 빈도 대조 → 소수파 위치 검출 ─────────
+// 반환: { summary: [...], perPage: Map(pageArrayIdx → raw issue[]) }
+function runConsistencyCheck() {
+  const pageTexts = pdfState.pages.map(p => lexNormalize(p.text));
+  const summary = [];
+  const perPage = new Map();
+  const pushRaw = (pi, pos, len, suggestion, description, confidence, selected) => {
+    if (!perPage.has(pi)) perPage.set(pi, []);
+    perPage.get(pi).push({
+      ruleId: -5, category: 'consistency', categoryName: '표기 일관성',
+      position: pos,
+      original: pdfState.pages[pi].text.slice(pos, pos + len),
+      suggestion, description, confidence, selected,
+    });
+  };
+
+  for (const pair of PDF_LEXICON_PAIRS) {
+    const terms = [pair.preferred, ...pair.variants];
+    // occ[termIdx][pageIdx] = 오프셋 배열
+    const occ = terms.map(t => pageTexts.map(txt => lexFindAll(txt, t, pair.skipBefore, pair.skipAfter)));
+    const counts = occ.map(pagesArr => pagesArr.reduce((s, a) => s + a.length, 0));
+    if (!counts.some(c => c > 0)) continue;
+
+    // 전체 다수파 1개 확정 (동률이면 preferred 우선 — counts[0]이 preferred)
+    let majIdx = 0;
+    for (let t = 1; t < terms.length; t++) if (counts[t] > counts[majIdx]) majIdx = t;
+    const majority = terms[majIdx];
+    // 소수파: 다수파를 제외한, 실제로 등장한 모든 표기
+    const minorities = terms
+      .map((term, ti) => ({
+        term, count: counts[ti],
+        pages: occ[ti].map((a, pi) => (a.length ? pdfState.pages[pi].index + 1 : 0)).filter(Boolean),
+        ti,
+      }))
+      .filter(m => m.ti !== majIdx && m.count > 0);
+    const mixed = minorities.length > 0;
+
+    summary.push({
+      terms, counts, preferred: pair.preferred,
+      majority, minorities, mixed,
+      policy: !!pair.policy, rule: pair.rule,
+    });
+
+    if (mixed) { // 실제 혼용 시에만 이슈화 — 소수파 표기별로 1회씩 (중복 push 없음)
+      let note = pair.rule || '';
+      let conf = pair.policy ? 0.6 : 0.85;
+      let selected = true;
+      if (pair.policy) note += ' ※ 정책 의존 — 출판사 표기 정책 확인';
+      if (majority !== pair.preferred) {
+        note += ` ※ 책 다수파(${majority})가 사전 권장(${pair.preferred})과 다름 — 정책 확인 필요`;
+        conf = Math.min(conf, 0.55);
+        selected = false; // 표준 표기를 비표준 다수파로 바꾸라는 역제안은 자동 선택 금지 (후보 표시만)
+      }
+      for (const m of minorities) {
+        occ[m.ti].forEach((posArr, pi) => {
+          for (const pos of posArr) pushRaw(pi, pos, m.term.length, majority, note, conf, selected);
+        });
+      }
+    }
+  }
+
+  // 조사 후보 (기본 미선택 — 후보 표시만)
+  pageTexts.forEach((txt, pi) => {
+    for (const jp of PDF_LEXICON_JOSA) {
+      jp.re.lastIndex = 0;
+      let m;
+      while ((m = jp.re.exec(txt)) !== null) {
+        pushRaw(pi, m.index, m[0].length, '', jp.note, 0.4, false);
+      }
+    }
+  });
+
+  return { summary, perPage };
+}
+
+// ── 문제집 검수 공통 파서 ─────────────────────────────────
+// PDF 추출 시 ①(U+2460)이 ➀(U+2780)·❶(U+2776) 등 변형으로 나온다
+const EXAM_CIRCLED = ['①②③④⑤', '➀➁➂➃➄', '❶❷❸❹❺', '⑴⑵⑶⑷⑸'];
+const EXAM_CIRCLED_CLASS = '[' + EXAM_CIRCLED.join('') + ']';
+const EXAM_NEG_KEYWORDS = ['틀린', '않은', '않는', '아닌', '없는', '잘못', '거리가먼', '적절하지', '옳지'];
+
+function circledToInt(ch) {
+  for (const group of EXAM_CIRCLED) {
+    const idx = group.indexOf(ch);
+    if (idx !== -1) return idx + 1;
+  }
+  return null;
+}
+
+// '\n숫자\n' 경계로 문항 분리 — 오프셋 보존 (하이라이트 위치용)
+// 반환: [{num, numPos, bodyStart, bodyEnd, body}]
+function splitQuestions(text) {
+  const re = /(?:^|\n)(\d{1,3})\n/g;
+  const marks = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const numPos = m.index + (m[0][0] === '\n' ? 1 : 0);
+    marks.push({ num: parseInt(m[1], 10), numPos, bodyStart: m.index + m[0].length });
+    re.lastIndex = m.index + m[0].length - 1; // 다음 경계의 선행 \n 재사용 허용
+  }
+  const out = [];
+  for (let i = 0; i < marks.length; i++) {
+    const bodyEnd = i + 1 < marks.length ? marks[i + 1].numPos - 1 : text.length;
+    out.push({ ...marks[i], bodyEnd, body: text.slice(marks[i].bodyStart, bodyEnd) });
+  }
+  return out;
+}
+
+// 하단 '정답 1.② 2.④ …' footer 파싱
+function parseFooterAnswers(text) {
+  const ans = {};
+  const re = new RegExp('(\\d{1,3})\\s*[.·]\\s*(' + EXAM_CIRCLED_CLASS + ')', 'g');
+  let m;
+  while ((m = re.exec(text)) !== null) ans[parseInt(m[1], 10)] = circledToInt(m[2]);
+  return ans;
+}
+
+// 부정형 판정 — 줄바꿈으로 깨진 "틀\n린" 대응 위해 공백 전부 제거 후 검사
+function isNegativeQuestion(questionHead) {
+  const q = questionHead.replace(/\s/g, '');
+  return EXAM_NEG_KEYWORDS.some(k => q.includes(k));
+}
+
+// 전체 페이지에서 문항 파싱 (exam_check·answer_stats 공용)
+// 회차 헤더(기출변형 N회 등)를 페이지 상단에서 감지해 각 문항에 태깅한다.
+function parseExamQuestions(format) {
+  const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
+  const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
+  const questions = [];
+  const footerAnswers = {};
+  const footerByRound = {};
+  let currentRound = '(회차 미상)';
+
+  for (const [pageIdx, page] of pdfState.pages.entries()) {
+    const text = lexNormalize(page.text);
+    const r = detectRound(text);
+    if (r) currentRound = r;
+    if (format === 'footer') {
+      const fa = parseFooterAnswers(text);
+      Object.assign(footerAnswers, fa);
+      footerByRound[currentRound] = Object.assign(footerByRound[currentRound] || {}, fa);
+    }
+    for (const q of splitQuestions(text)) {
+      const optChars = q.body.match(circledRe) || [];
+      if (optChars.length < 2) continue; // 쪽번호 등 오분할 조각 제외
+      const optSet = [...new Set(optChars.map(circledToInt))].sort((a, b) => a - b);
+      const am = q.body.match(ansRe);
+      const firstOpt = q.body.search(circledRe);
+      // firstOpt === 0: 쪽 넘김으로 지문이 앞 페이지에 있는 조각 — head는 빈 문자열이어야
+      // 보기 텍스트('없는' 등)가 부정형 키워드에 오매칭되지 않는다
+      const head = firstOpt >= 0 ? q.body.slice(0, firstOpt) : q.body.slice(0, 120);
+      questions.push({
+        num: q.num,
+        pageIdx,
+        pageNo: page.index + 1,
+        round: currentRound,
+        numPos: q.numPos,
+        bodyStart: q.bodyStart,
+        nOptions: optSet.length,
+        optionsSeen: optSet,
+        inlineAnswer: am ? circledToInt(am[1]) : null,
+        hasNote: q.body.includes('오답노트'),
+        hasPoint: q.body.includes('접근 Point') || q.body.replace(/\s/g, '').includes('접근Point'),
+        negative: isNegativeQuestion(head),
+      });
+    }
+  }
+  return { questions, footerAnswers, footerByRound };
+}
+
+// 검수 결과 이슈를 pdfState.issues에 추가 (canonical shape)
+function pdfPushExtraIssue(pageIdx, pos, len, ruleId, category, original, suggestion, note, confInt, selected = true) {
+  const page = pdfState.pages[pageIdx];
+  const wordIdx = mapCharRangeToWords(pos, pos + len, page.word_spans);
+  if (wordIdx.length === 0) return false;
+  pdfState.issues.push({
+    // _id는 인덱스가 아니라 식별자 — 필터로 중간이 비어도 안전하게 max+1 할당 (AI 병합과 동일 방식)
+    _id: pdfState.issues.reduce((a, x) => Math.max(a, x._id), -1) + 1,
+    page: page.index,
+    word_indices: wordIdx,
+    _pos: pos,
+    _len: len,
+    category,
+    categoryName: PDF_CAT_NAME[category] || category,
+    backendCat: PDF_CAT_NAME[category] || category,
+    original, suggestion, note,
+    confidence: confInt,
+    kind: 'highlight',
+    ruleId,
+    _selected: selected,
+  });
+  return true;
+}
+
+// ── (B) 문제집 정합성 검수 — exam_check 이식 ──────────────
+function runExamCheck(format) {
+  const { questions, footerAnswers } = parseExamQuestions(format);
+  const findings = [];
+  const nQ = questions.length;
+  const nInline = questions.filter(q => q.inlineAnswer !== null).length;
+  const nNote   = questions.filter(q => q.hasNote).length;
+  const nPoint  = questions.filter(q => q.hasPoint).length;
+
+  const add = (q, kind, detail, confidence) => {
+    findings.push({ kind, page: q.pageNo, question: q.num, detail, confidence,
+                    pageIdx: q.pageIdx, numPos: q.numPos, bodyStart: q.bodyStart });
+  };
+
+  for (const q of questions) {
+    // 인라인 정답 누락 (대다수 문항엔 있는데 이 문항만 없음 — 조판 누락 신호, 70% 규칙)
+    if (format === 'inline' && nInline >= nQ * 0.7 && q.inlineAnswer === null)
+      add(q, '인라인 정답 누락', "다른 문항엔 '답: ○'가 있는데 이 문항만 없음 — 조판 누락 의심", 'medium');
+    if (nNote >= nQ * 0.7 && !q.hasNote)
+      add(q, '오답노트 부재', '대다수 문항에 있는 오답노트가 이 문항엔 없음', 'medium');
+    if (nPoint >= nQ * 0.7 && !q.hasPoint)
+      add(q, '접근 Point 부재', '대다수 문항에 있는 접근 Point가 이 문항엔 없음', 'medium');
+    const ans = format === 'inline' ? q.inlineAnswer : footerAnswers[q.num];
+    if (ans && q.optionsSeen.length && !q.optionsSeen.includes(ans))
+      add(q, '정답-보기 불일치', `정답 ${ans}번인데 추출된 보기 번호는 [${q.optionsSeen.join(',')}] — 추출 누락 가능성 우선 확인`, 'medium');
+    if (format === 'footer' && q.inlineAnswer !== null) {
+      const fa = footerAnswers[q.num];
+      if (fa && fa !== q.inlineAnswer)
+        add(q, '정답 교차 불일치', `인라인 답 ${q.inlineAnswer} ≠ footer 답 ${fa}`, 'high');
+    }
+  }
+
+  // 정답 분포 (누적) — 전 보기(1..max) 검사
+  const allAns = questions
+    .map(q => (format === 'inline' ? q.inlineAnswer : footerAnswers[q.num]))
+    .filter(a => a);
+  const dist = {};
+  allAns.forEach(a => { dist[a] = (dist[a] || 0) + 1; });
+  // maxChoice는 정답만이 아니라 '보기로 존재하는 번호'에서 유도 —
+  // 정답으로 한 번도 안 나온 보기(0% = 가장 극단적 편향)도 검사 대상
+  const maxOptSeen = questions.reduce(
+    (m, q) => Math.max(m, q.optionsSeen[q.optionsSeen.length - 1] || 0), 0);
+  const maxChoice = Math.max(allAns.length ? Math.max(...allAns) : 0, maxOptSeen);
+  const skew = [];
+  for (let ch = 1; ch <= maxChoice && allAns.length; ch++) {
+    const ratio = (dist[ch] || 0) / allAns.length;
+    if (ratio < 0.10) skew.push({ choice: ch, count: dist[ch] || 0, ratio });
+  }
+
+  // 위치 있는 finding → 이슈로 push (문항 번호+질문 머리 하이라이트)
+  pdfState.issues = pdfState.issues.filter(x => x.ruleId !== -6); // 이전 검수 결과 제거
+  for (const f of findings) {
+    const page = pdfState.pages[f.pageIdx];
+    const len = Math.min(f.bodyStart - f.numPos + 25, page.text.length - f.numPos);
+    pdfPushExtraIssue(
+      f.pageIdx, f.numPos, len, -6, 'exam',
+      `문항 ${f.question}`, '', `[${f.kind}] ${f.detail}`,
+      f.confidence === 'high' ? 90 : 65,
+    );
+  }
+
+  pdfState.examReport = {
+    format, nQ, nInline, nNote, nPoint,
+    answersFound: allAns.length,
+    negativeQuestions: questions.filter(q => q.negative).map(q => q.num),
+    distribution: dist, maxChoice, skew, findings,
+  };
+  return pdfState.examReport;
+}
+
+// ── (B-보조) 회차별 정답 분포 통계 — answer_stats 이식 ─────
+// 회차 헤더는 페이지 상단 300자에서 공백 제거 후 감지
+const EXAM_ROUND_PATTERNS = [
+  /기출변형\d{1,2}회/, /모의고사\d{1,2}회/, /제\d{1,2}회/, /\d{1,2}회차/,
+];
+
+function detectRound(text) {
+  const compact = text.slice(0, 300).replace(/\s/g, '');
+  for (const pat of EXAM_ROUND_PATTERNS) {
+    const m = compact.match(pat);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+function longestRuns(seq, minLen) {
+  const runs = [];
+  let i = 0;
+  while (i < seq.length) {
+    let j = i;
+    while (j + 1 < seq.length && seq[j + 1].ans === seq[i].ans) j++;
+    if (j - i + 1 >= minLen)
+      runs.push({ choice: seq[i].ans, length: j - i + 1, startQuestion: seq[i].num });
+    i = j + 1;
+  }
+  return runs;
+}
+
+function runAnswerStats(format) {
+  const SKEW = 0.10, DOMINANCE = 0.40, RUN_LEN = 4;
+
+  // exam_check와 동일한 공용 파서 사용 — 파싱 휴리스틱이 두 기능에서 갈라지지 않게 한다
+  const { questions, footerByRound } = parseExamQuestions(format);
+  const roundSeq = {};    // round → [{num, ans}]
+  for (const q of questions) {
+    if (!roundSeq[q.round]) roundSeq[q.round] = [];
+    if (format === 'inline' && q.inlineAnswer) roundSeq[q.round].push({ num: q.num, ans: q.inlineAnswer });
+    else if (format === 'footer')              roundSeq[q.round].push({ num: q.num, ans: null });
+  }
+
+  // 회차별 정답 시퀀스 확정
+  const rounds = {};
+  const roundNames = new Set([...Object.keys(roundSeq), ...Object.keys(footerByRound)]);
+  for (const r of roundNames) {
+    let seq;
+    if (format === 'inline') {
+      seq = (roundSeq[r] || []).filter(x => x.ans);
+    } else {
+      const fa = footerByRound[r] || {};
+      const qnums = (roundSeq[r] || []).map(x => x.num);
+      const order = qnums.length ? qnums : Object.keys(fa).map(Number).sort((a, b) => a - b);
+      seq = order.filter(q => fa[q]).map(q => ({ num: q, ans: fa[q] }));
+    }
+    if (seq.length) rounds[r] = seq;
+  }
+
+  if (!Object.keys(rounds).length) {
+    pdfState.answerStats = null;
+    return null;
+  }
+
+  // maxChoice는 정답 + 보기 번호 모두에서 유도 (정답 0회 보기 = 가장 극단적 편향도 검사)
+  const maxAns = Math.max(...Object.values(rounds).flatMap(seq => seq.map(x => x.ans)));
+  const maxOptSeen = questions.reduce(
+    (m, q) => Math.max(m, q.optionsSeen[q.optionsSeen.length - 1] || 0), 0);
+  const maxChoice = Math.max(maxAns, maxOptSeen);
+  const cumulative = {};
+  const roundStats = {};
+  const alerts = [];
+
+  for (const r of Object.keys(rounds).sort()) {
+    const seq = rounds[r];
+    const dist = {};
+    seq.forEach(x => {
+      dist[x.ans] = (dist[x.ans] || 0) + 1;
+      cumulative[x.ans] = (cumulative[x.ans] || 0) + 1;
+    });
+    const total = seq.length;
+    // ⑤까지 전 보기 검사 (원본 Python의 choice<=4 제한 버그 수정)
+    const under = [], over = [];
+    for (let ch = 1; ch <= maxChoice; ch++) {
+      const n = dist[ch] || 0;
+      if (n / total < SKEW) under.push({ choice: ch, count: n, ratio: n / total });
+      if (n / total > DOMINANCE) over.push({ choice: ch, count: n, ratio: n / total });
+    }
+    const runs = longestRuns(seq, RUN_LEN);
+    if (under.length) alerts.push({ round: r, kind: '과소편향', detail: under });
+    if (over.length)  alerts.push({ round: r, kind: '쏠림', detail: over });
+    if (runs.length)  alerts.push({ round: r, kind: '동일 정답 연속', detail: runs });
+    roundStats[r] = { total, dist, under, over, runs };
+  }
+
+  const totalAll = Object.values(cumulative).reduce((s, n) => s + n, 0);
+  const cumUnder = [];
+  for (let ch = 1; ch <= maxChoice; ch++) {
+    const n = cumulative[ch] || 0;
+    if (n / totalAll < SKEW) cumUnder.push({ choice: ch, count: n, ratio: n / totalAll });
+  }
+  if (cumUnder.length) alerts.push({ round: '(누적)', kind: '과소편향', detail: cumUnder });
+
+  pdfState.answerStats = { format, rounds: roundStats, cumulative, totalAll, maxChoice, alerts };
+  return pdfState.answerStats;
+}
+
+// ── (C) 목차 쪽수 검증 — page_xcheck 이식 ─────────────────
+// 페이지 첫/끝 2줄에서 인쇄 쪽번호 추정
+function guessPrintedNumber(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const candidates = lines.slice(0, 2).concat(lines.slice(-2));
+  const nums = [];
+  for (const ln of candidates) {
+    const m = ln.match(/^(\d{1,4})$/) || ln.match(/(\d{1,4})\s*$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= 2000) nums.push(n);
+    }
+  }
+  if (!nums.length) return null;
+  const counts = {};
+  nums.forEach(n => { counts[n] = (counts[n] || 0) + 1; });
+  return Number(Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0]);
+}
+
+// tocText: 한 줄에 "제목 ... 쪽수" 형식 붙여넣기
+function runPageXCheck(tocText) {
+  // 1) 오프셋 추정 (물리쪽 - 인쇄쪽)
+  const offsets = [];
+  for (const page of pdfState.pages) {
+    const printed = guessPrintedNumber(page.text);
+    if (printed !== null)
+      offsets.push({ physical: page.index + 1, printed, offset: page.index + 1 - printed });
+  }
+  const offCounts = {};
+  offsets.forEach(o => { offCounts[o.offset] = (offCounts[o.offset] || 0) + 1; });
+  const mainOffset = offsets.length
+    ? Number(Object.keys(offCounts).sort((a, b) => offCounts[b] - offCounts[a])[0])
+    : null;
+  const anomalies = offsets.filter(o => mainOffset !== null && o.offset !== mainOffset);
+
+  // 2) 목차 대조
+  const tocResults = [];
+  const entries = (tocText || '').split('\n')
+    .map(l => l.trim()).filter(Boolean)
+    .map(l => {
+      const m = l.match(/^(.*?)[\s.·…]*(\d{1,4})$/);
+      return m ? { title: m[1].trim(), printedPage: parseInt(m[2], 10) } : null;
+    })
+    .filter(Boolean);
+
+  // 오프셋 추정에 실패하면 인쇄쪽 환산이 불가능 — 가짜 '불일치'를 만들지 않도록 대조를 생략한다
+  const tocSkipped = entries.length > 0 && mainOffset === null;
+  if (entries.length && mainOffset !== null) {
+    const normPages = pdfState.pages.map(p => p.text.replace(/\s/g, ''));
+    // 목차 페이지 자체에 제목이 걸리는 오탐 방지: 항목 2개 이상이 동시 등장하는 페이지는 목차로 간주
+    const titleNs = entries.map(e => e.title.replace(/\s/g, '').slice(0, 20)).filter(Boolean);
+    const tocLike = normPages.map(np =>
+      entries.length >= 2 && titleNs.filter(t => np.includes(t)).length >= 2);
+    for (const entry of entries) {
+      const titleN = entry.title.replace(/\s/g, '').slice(0, 20);
+      let foundIdx = -1;
+      if (titleN) {
+        for (let pi = 0; pi < normPages.length; pi++) {
+          if (!tocLike[pi] && normPages[pi].includes(titleN)) { foundIdx = pi; break; }
+        }
+        if (foundIdx === -1) { // 전부 목차형이면 원래대로 첫 매칭
+          for (let pi = 0; pi < normPages.length; pi++) {
+            if (normPages[pi].includes(titleN)) { foundIdx = pi; break; }
+          }
+        }
+      }
+      if (foundIdx === -1) {
+        tocResults.push({ ...entry, status: 'not_found' });
+        continue;
+      }
+      const foundPhysical = pdfState.pages[foundIdx].index + 1;
+      const actualPrinted = foundPhysical - mainOffset;
+      const diff = actualPrinted - entry.printedPage;
+      tocResults.push({ ...entry, status: diff === 0 ? 'ok' : 'mismatch', foundPhysical, actualPrinted, diff });
+    }
+  }
+
+  pdfState.xcheck = {
+    mainOffset, offsetSamples: offsets.length,
+    offsetDist: offCounts, anomalies, tocResults, tocSkipped,
+  };
+  return pdfState.xcheck;
 }
 
 // ── 진행 표시 ────────────────────────────────────────────
@@ -6015,7 +6630,17 @@ function pdfDetectAll() {
   const useJamo     = document.getElementById('pdfUseJamo').checked;
   const useParticle = document.getElementById('pdfUseParticle').checked;
   const useColon    = document.getElementById('pdfUseColon').checked;
+  const useConsist  = document.getElementById('pdfUseConsistency')?.checked;
   const all = [];
+
+  // 표기 일관성: 문서 전체 빈도 대조가 선행돼야 하므로 페이지 루프 밖에서 1회 실행
+  let consistency = null;
+  if (useConsist) {
+    consistency = runConsistencyCheck();
+    pdfState.consistency = consistency.summary;
+  } else {
+    pdfState.consistency = null;
+  }
 
   for (const page of pdfState.pages) {
     // 띄어쓰기·조사 규칙 검출 시 괄호 내부를 마스킹하여 오탐 방지
@@ -6057,6 +6682,18 @@ function pdfDetectAll() {
       if (before === ')' || before === '(' || after === ')' || after === '(') return false;
       return true;
     });
+
+    // 표기 일관성 이슈 (문서 전체 대조 결과 중 이 페이지 몫)
+    // 프리셋 용어 규칙(디렉토리→디렉터리 등)이 이미 같은 스팬을 잡았으면 중복이므로 제외
+    if (consistency) {
+      const pageArrayIdx = pdfState.pages.indexOf(page);
+      const consRaw = consistency.perPage.get(pageArrayIdx) || [];
+      const taken = raw.map(i => [i.position, i.position + i.original.length]);
+      raw = raw.concat(consRaw.filter(c => {
+        const s = c.position, e = c.position + c.original.length;
+        return !taken.some(([ts, te]) => s < te && ts < e);
+      }));
+    }
 
     // PDF 전용 추가 감지: 이중공백 (실제 오류이지만 기본 감지기가 놓침)
     const DBL_SPACE = /([가-힣])(  )([가-힣])/g;
@@ -6100,7 +6737,7 @@ function pdfDetectAll() {
         confidence:   Math.round(conf * 100),
         kind:         'highlight',
         ruleId:       issue.ruleId,
-        _selected:    true,
+        _selected:    issue.selected !== false, // 조사 후보 등 low-confidence는 기본 미선택
       });
     }
   }
@@ -6116,6 +6753,8 @@ const CAT_OVERLAY_COLOR = {
   terminology: 'rgba(60,180,110,.30)',
   custom:      'rgba(160,120,230,.28)',
   ai:          'rgba(124,71,245,.38)',
+  consistency: 'rgba(20,170,160,.30)',
+  exam:        'rgba(230,70,150,.28)',
 };
 
 async function pdfRenderPage(pageIndex) {
@@ -6261,6 +6900,8 @@ const ANNOT_COLORS = {
   '띄어쓰기': [0.95, 0.70, 0.20],
   '조사공백': [0.95, 0.70, 0.20],
   'AI 교정':  [0.49, 0.28, 0.96],
+  '표기 일관성': [0.08, 0.67, 0.63],
+  '문제집 검수': [0.90, 0.27, 0.59],
 };
 const ANNOT_DEFAULT = [0.95, 0.70, 0.20];
 
@@ -6387,6 +7028,19 @@ function pdfHandleFile(file) {
   pdfState.pages   = [];
   pdfState.issues  = [];
   pdfState.currentPage = 0;
+  // 문서 검수 상태 초기화
+  pdfState.consistency = null;
+  pdfState.examReport  = null;
+  pdfState.answerStats = null;
+  pdfState.xcheck      = null;
+  ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.disabled = true;
+  });
+  ['pdfExamResult', 'pdfAnswerStatsResult', 'pdfXcheckResult'].forEach(id => {
+    const e = document.getElementById(id); if (e) e.innerHTML = '';
+  });
+  const cs = document.getElementById('pdfConsistencySummary');
+  if (cs) cs.innerHTML = '아직 검출을 실행하지 않았습니다.';
 
   document.getElementById('pdfFileName').textContent = file.name;
   document.getElementById('pdfFileMeta').textContent =
@@ -6428,13 +7082,199 @@ document.getElementById('pdfDetectBtn').addEventListener('click', async () => {
     pdfSetProgress(85);
     document.getElementById('pdfResultsWrap').classList.remove('hidden');
     pdfState.currentPage = 0;
+    // 재검출은 pdfState.issues를 전체 교체하므로, 이전에 실행한 문제집 검수 이슈(-6)를
+    // 페이지 렌더 전에 다시 push해 패널·리포트·주석 PDF가 어긋나지 않게 한다
+    if (pdfState.examReport) {
+      const rep = runExamCheck(pdfState.examReport.format);
+      renderExamReport(rep);
+    }
     await pdfRenderPage(0);
+    renderConsistencySummary();
     pdfRenderIssueList();
+    // 검수 버튼 활성화 (추출 완료 후에만 의미 있음)
+    ['pdfExamCheckBtn', 'pdfAnswerStatsBtn', 'pdfXcheckBtn'].forEach(id => {
+      const b = document.getElementById(id); if (b) b.disabled = false;
+    });
     showToast('검출 완료 — ' + issues.length + '개 항목', 3000);
     pdfSetProgress(100);
   } catch (err) {
     showToast('오류: ' + err.message); console.error(err);
   } finally { btn.disabled = false; }
+});
+
+// ── 문서 검수 패널: 렌더 + 이벤트 ─────────────────────────
+const AUDIT_TABLE = 'width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);';
+const AUDIT_TH = 'text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);color:var(--ink-faint);font-size:11px;white-space:nowrap;';
+const AUDIT_TD = 'padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top;';
+
+function renderConsistencySummary() {
+  const el = document.getElementById('pdfConsistencySummary');
+  const sum = pdfState.consistency;
+  if (!sum) {
+    el.innerHTML = '<span style="color:var(--ink-faint);">표기 일관성 검사가 꺼져 있습니다 (사이드바 검출 옵션에서 켜세요).</span>';
+    return;
+  }
+  if (!sum.length) {
+    el.innerHTML = '<span style="color:var(--ink-faint);">용어사전 표기쌍이 문서에서 발견되지 않았습니다.</span>';
+    return;
+  }
+  const mixed = sum.filter(s => s.mixed);
+  let html = `<div style="margin-bottom:6px;">발견 ${sum.length}쌍 중 <b style="color:${mixed.length ? 'var(--warning)' : 'var(--success)'};">혼용 ${mixed.length}쌍</b>`;
+  html += mixed.length ? ' — 소수파 위치가 이슈 목록에 추가되었습니다.' : ' — 표기가 일관됩니다.';
+  html += '</div>';
+  html += `<table style="${AUDIT_TABLE}"><tr>`
+    + `<th style="${AUDIT_TH}">표기 빈도</th>`
+    + `<th style="${AUDIT_TH}">다수파</th><th style="${AUDIT_TH}">소수파 위치</th><th style="${AUDIT_TH}">비고</th></tr>`;
+  // 혼용 먼저, 그 다음 단독 사용
+  for (const s of [...mixed, ...sum.filter(x => !x.mixed)]) {
+    const warn = s.mixed ? 'color:var(--warning);font-weight:700;' : '';
+    const freq = s.terms.map((t, i) => `${t} ${s.counts[i]}`).join(' : ');
+    const pages = s.mixed
+      ? s.minorities.map(m => `${m.term}: p${m.pages.slice(0, 10).join(',')}${m.pages.length > 10 ? '…' : ''}`).join(' / ')
+      : '—';
+    let note = s.policy ? '정책 의존' : '';
+    if (s.mixed && s.majority !== s.preferred) note += (note ? ' · ' : '') + `다수파가 사전 권장(${escapeHtml(s.preferred)})과 다름 — 자동 선택 안 함`;
+    html += `<tr><td style="${AUDIT_TD}${warn}">${escapeHtml(freq)}</td>`
+      + `<td style="${AUDIT_TD}">${escapeHtml(s.majority)}</td>`
+      + `<td style="${AUDIT_TD}">${escapeHtml(pages)}</td>`
+      + `<td style="${AUDIT_TD}color:var(--ink-faint);font-size:11px;">${escapeHtml(note || s.rule)}</td></tr>`;
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+function pdfExamFormat() {
+  return document.querySelector('input[name="pdfExamFormat"]:checked')?.value || 'inline';
+}
+
+function renderExamReport(rep) {
+  const el = document.getElementById('pdfExamResult');
+  if (!rep.nQ) {
+    el.innerHTML = '<span style="color:var(--warning);">문항을 찾지 못했습니다 — 문제집 형식 PDF인지, 정답 형식 선택이 맞는지 확인하세요.</span>';
+    return;
+  }
+  let html = `<div style="margin-bottom:6px;">파싱: 문항 <b>${rep.nQ}</b>개 · 정답 <b>${rep.answersFound}</b>개 `
+    + `(인라인 ${rep.nInline} / 오답노트 ${rep.nNote} / 접근Point ${rep.nPoint}) · 부정형 ${rep.negativeQuestions.length}문항</div>`;
+  if (rep.skew.length) {
+    const s = rep.skew.map(x => `${'①②③④⑤'[x.choice - 1]} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ');
+    html += `<div style="margin-bottom:6px;color:var(--warning);">⚠ 정답 분포 편향 후보 (10% 미만): ${s} — 먼저 파싱 누락을 의심할 것</div>`;
+  }
+  if (!rep.findings.length) {
+    html += '<div style="color:var(--success);">정합성 이상 후보 없음 ✓</div>';
+  } else {
+    html += `<div style="margin-bottom:4px;color:var(--warning);font-weight:700;">검출 후보 ${rep.findings.length}건 — 이슈 목록·주석 PDF에도 표시됩니다</div>`;
+    html += `<table style="${AUDIT_TABLE}"><tr>`
+      + `<th style="${AUDIT_TH}">유형</th><th style="${AUDIT_TH}">문항</th><th style="${AUDIT_TH}">쪽</th>`
+      + `<th style="${AUDIT_TH}">내용</th><th style="${AUDIT_TH}">신뢰도</th></tr>`;
+    for (const f of rep.findings) {
+      html += `<tr><td style="${AUDIT_TD}white-space:nowrap;">${escapeHtml(f.kind)}</td>`
+        + `<td style="${AUDIT_TD}">${f.question}</td><td style="${AUDIT_TD}">${f.page}</td>`
+        + `<td style="${AUDIT_TD}">${escapeHtml(f.detail)}</td>`
+        + `<td style="${AUDIT_TD}">${f.confidence === 'high' ? '높음' : '중간'}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  html += '<div style="margin-top:6px;font-size:11px;color:var(--ink-faint);">※ 모든 검출은 1차 후보입니다. 긍정형/부정형 구분, 조판 누락 확정은 해당 쪽을 직접 확인하세요.</div>';
+  el.innerHTML = html;
+}
+
+function renderAnswerStats(stats) {
+  const el = document.getElementById('pdfAnswerStatsResult');
+  if (!stats) {
+    el.innerHTML = '<span style="color:var(--warning);">정답을 하나도 찾지 못했습니다 — 정답 형식 선택을 확인하세요.</span>';
+    return;
+  }
+  const CIRC = '①②③④⑤';
+  let html = `<table style="${AUDIT_TABLE}"><tr><th style="${AUDIT_TH}">회차</th>`;
+  for (let ch = 1; ch <= stats.maxChoice; ch++) html += `<th style="${AUDIT_TH}">${CIRC[ch - 1]}</th>`;
+  html += `<th style="${AUDIT_TH}">계</th></tr>`;
+  const row = (label, dist, total, bold) => {
+    let r = `<tr><td style="${AUDIT_TD}${bold ? 'font-weight:700;' : ''}">${escapeHtml(label)}</td>`;
+    for (let ch = 1; ch <= stats.maxChoice; ch++) {
+      const n = dist[ch] || 0;
+      const pct = total ? (n / total * 100).toFixed(1) : '0';
+      const low = total && n / total < 0.10;
+      r += `<td style="${AUDIT_TD}${low ? 'color:var(--warning);font-weight:700;' : ''}">${n} <span style="font-size:10px;color:var(--ink-faint);">(${pct}%)</span></td>`;
+    }
+    return r + `<td style="${AUDIT_TD}${bold ? 'font-weight:700;' : ''}">${total}</td></tr>`;
+  };
+  for (const r of Object.keys(stats.rounds).sort()) {
+    html += row(r, stats.rounds[r].dist, stats.rounds[r].total, false);
+  }
+  html += row('누적', stats.cumulative, stats.totalAll, true);
+  html += '</table>';
+  if (stats.alerts.length) {
+    html += '<div style="margin-top:6px;color:var(--warning);"><b>⚠ 편향 후보:</b><ul style="margin:4px 0 0 18px;padding:0;">';
+    for (const a of stats.alerts) {
+      let d;
+      if (a.kind === '동일 정답 연속') {
+        d = a.detail.map(x => `${CIRC[x.choice - 1]} ${x.length}연속 (문항 ${x.startQuestion}부터)`).join(', ');
+      } else {
+        d = a.detail.map(x => `${CIRC[x.choice - 1]} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ');
+      }
+      html += `<li>[${escapeHtml(a.round)}] ${escapeHtml(a.kind)}: ${escapeHtml(d)}</li>`;
+    }
+    html += '</ul><div style="font-size:11px;color:var(--ink-faint);margin-top:4px;">※ 먼저 파싱 누락을 의심하고, 아니면 출제 편향으로 보고하세요. 장별로는 안 보여도 누적에서 드러날 수 있습니다.</div></div>';
+  } else {
+    html += '<div style="margin-top:6px;color:var(--success);">편향 후보 없음 ✓ (임계: 과소 10% / 쏠림 40% / 연속 4개)</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderXcheckReport(x) {
+  const el = document.getElementById('pdfXcheckResult');
+  if (x.mainOffset === null) {
+    el.innerHTML = '<span style="color:var(--warning);">머리말/꼬리말에서 인쇄 쪽번호를 추정하지 못했습니다.'
+      + (x.tocSkipped ? ' 목차 대조는 인쇄쪽 환산이 불가능해 생략했습니다.' : '') + '</span>';
+    return;
+  }
+  let html = `<div style="margin-bottom:6px;">주 오프셋(물리쪽−인쇄쪽): <b>${x.mainOffset}</b> (표본 ${x.offsetSamples}쪽)`;
+  if (x.anomalies.length) {
+    const list = x.anomalies.slice(0, 15).map(a => `물리 p${a.physical}(인쇄 ${a.printed}, 오프셋 ${a.offset})`).join(', ');
+    html += `<div style="color:var(--warning);margin-top:4px;">⚠ 오프셋 이탈 ${x.anomalies.length}쪽 — 페이지 누락/추가 신호일 수 있음:<br>${escapeHtml(list)}${x.anomalies.length > 15 ? ' …' : ''}</div>`;
+  } else {
+    html += ' <span style="color:var(--success);">— 오프셋 일관 ✓</span>';
+  }
+  html += '</div>';
+  if (x.tocResults.length) {
+    const bad = x.tocResults.filter(t => t.status !== 'ok');
+    html += `<div style="margin-bottom:4px;">목차 대조: ${x.tocResults.length}건 중 <b style="color:${bad.length ? 'var(--warning)' : 'var(--success)'};">불일치/미발견 ${bad.length}건</b></div>`;
+    html += `<table style="${AUDIT_TABLE}"><tr>`
+      + `<th style="${AUDIT_TH}">제목</th><th style="${AUDIT_TH}">목차 쪽</th>`
+      + `<th style="${AUDIT_TH}">실제 쪽</th><th style="${AUDIT_TH}">차이</th><th style="${AUDIT_TH}">상태</th></tr>`;
+    for (const t of x.tocResults) {
+      const st = t.status === 'ok' ? '<span style="color:var(--success);">일치</span>'
+        : t.status === 'mismatch' ? '<span style="color:var(--warning);font-weight:700;">불일치</span>'
+        : '<span style="color:var(--ink-faint);">본문에서 못 찾음</span>';
+      html += `<tr><td style="${AUDIT_TD}">${escapeHtml(t.title)}</td>`
+        + `<td style="${AUDIT_TD}">${t.printedPage}</td>`
+        + `<td style="${AUDIT_TD}">${t.actualPrinted ?? '—'}</td>`
+        + `<td style="${AUDIT_TD}">${t.diff != null && t.diff !== 0 ? (t.diff > 0 ? '+' : '') + t.diff : t.diff === 0 ? '0' : '—'}</td>`
+        + `<td style="${AUDIT_TD}">${st}</td></tr>`;
+    }
+    html += '</table>';
+    html += '<div style="margin-top:4px;font-size:11px;color:var(--ink-faint);">※ 차이가 누적되며 커지면(+1→+2→+3) 목차 전체 재계산을 권장합니다. 회차/장 첫 페이지 머리말 숫자는 실제 시작점과 어긋날 수 있습니다.</div>';
+  }
+  el.innerHTML = html;
+}
+
+document.getElementById('pdfExamCheckBtn').addEventListener('click', async () => {
+  const rep = runExamCheck(pdfExamFormat());
+  renderExamReport(rep);
+  pdfRenderIssueList();
+  await pdfRenderPage(pdfState.currentPage);
+  showToast(`문제집 검수 완료 — 문항 ${rep.nQ}개, 후보 ${rep.findings.length}건`, 3000);
+});
+
+document.getElementById('pdfAnswerStatsBtn').addEventListener('click', () => {
+  const stats = runAnswerStats(pdfExamFormat());
+  renderAnswerStats(stats);
+  if (stats) showToast(`정답 분포 집계 완료 — ${stats.totalAll}문항, 편향 후보 ${stats.alerts.length}건`, 3000);
+});
+
+document.getElementById('pdfXcheckBtn').addEventListener('click', () => {
+  const x = runPageXCheck(document.getElementById('pdfTocInput').value);
+  renderXcheckReport(x);
 });
 
 document.getElementById('pdfPrevBtn').addEventListener('click', async () => {
@@ -6504,6 +7344,90 @@ function pdfDownloadReport() {
     r += '\n' + LINE + '\n검출 집중 페이지 (상위 10)\n' + LINE + '\n';
     for (const [pg, cnt] of topPages)
       r += `  p.${String(pg).padStart(4)}  ${cnt}건\n`;
+  }
+
+  // ── 문서 검수 섹션 (실행된 것만) ──
+  const CIRC = '①②③④⑤';
+
+  if (pdfState.consistency && pdfState.consistency.length) {
+    const present = pdfState.consistency;
+    const mixed = present.filter(s => s.mixed);
+    r += '\n' + LINE + `\n표기 일관성 대조 (발견 ${present.length}쌍 · 혼용 ${mixed.length}쌍)\n` + LINE + '\n';
+    for (const s of [...mixed, ...present.filter(x => !x.mixed)]) {
+      r += `  ${s.mixed ? '⚠' : '·'} ` + s.terms.map((t, i) => `${t} ${s.counts[i]}`).join(' vs ');
+      if (s.mixed) {
+        r += ' → 소수파 ' + s.minorities
+          .map(m => `'${m.term}' @ p${m.pages.slice(0, 15).join(',')}`).join(', ');
+        if (s.majority !== s.preferred) r += ` [다수파가 사전 권장(${s.preferred})과 다름 — 자동 선택 안 함]`;
+      }
+      if (s.policy) r += ' [정책 의존]';
+      r += '\n';
+    }
+  }
+
+  if (pdfState.examReport) {
+    const e = pdfState.examReport;
+    r += '\n' + LINE + `\n문제집 검수 (${e.format === 'inline' ? '인라인 정답' : '하단 정답표'})\n` + LINE + '\n';
+    r += `  문항 ${e.nQ}개 · 정답 ${e.answersFound}개 (인라인 ${e.nInline} / 오답노트 ${e.nNote} / 접근Point ${e.nPoint})\n`;
+    r += `  부정형 문항: ${e.negativeQuestions.length ? e.negativeQuestions.join(', ') : '없음'}\n`;
+    if (e.skew.length)
+      r += `  ⚠ 분포 편향 후보: ${e.skew.map(x => `${CIRC[x.choice - 1]} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ')}\n`;
+    if (e.findings.length) {
+      r += `  검출 후보 ${e.findings.length}건:\n`;
+      for (const f of e.findings)
+        r += `    - [${f.kind}] 문항 ${f.question} (p.${f.page}) — ${f.detail}\n`;
+    } else {
+      r += '  정합성 이상 후보 없음\n';
+    }
+    r += '  ※ 모든 검출은 1차 후보 — 원문 직접 확인 필요\n';
+  }
+
+  if (pdfState.answerStats) {
+    const st = pdfState.answerStats;
+    r += '\n' + LINE + '\n정답 분포 통계 (회차별)\n' + LINE + '\n';
+    const distRow = (label, dist, tot) => {
+      let row = `  ${label.padEnd(12)} |`;
+      for (let ch = 1; ch <= st.maxChoice; ch++) {
+        const n = dist[ch] || 0;
+        row += ` ${CIRC[ch - 1]} ${String(n).padStart(3)} (${(tot ? n / tot * 100 : 0).toFixed(1).padStart(4)}%) |`;
+      }
+      return row + ` 계 ${tot}\n`;
+    };
+    for (const rd of Object.keys(st.rounds).sort())
+      r += distRow(rd, st.rounds[rd].dist, st.rounds[rd].total);
+    r += distRow('누적', st.cumulative, st.totalAll);
+    if (st.alerts.length) {
+      r += '  ⚠ 편향 후보:\n';
+      for (const a of st.alerts) {
+        const d = a.kind === '동일 정답 연속'
+          ? a.detail.map(x => `${CIRC[x.choice - 1]} ${x.length}연속(문항 ${x.startQuestion}~)`).join(', ')
+          : a.detail.map(x => `${CIRC[x.choice - 1]} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ');
+        r += `    - [${a.round}] ${a.kind}: ${d}\n`;
+      }
+      r += '  ※ 먼저 파싱 누락을 의심하고, 아니면 출제 편향으로 보고\n';
+    } else {
+      r += '  편향 후보 없음 (임계: 과소 10% / 쏠림 40% / 연속 4개)\n';
+    }
+  }
+
+  if (pdfState.xcheck) {
+    const x = pdfState.xcheck;
+    r += '\n' + LINE + '\n목차 쪽수 검증\n' + LINE + '\n';
+    r += `  주 오프셋(물리−인쇄): ${x.mainOffset ?? '추정 실패'} (표본 ${x.offsetSamples}쪽)\n`;
+    if (x.tocSkipped)
+      r += '  ※ 인쇄 쪽번호 추정 실패로 목차 대조는 생략됨 (환산 불가)\n';
+    if (x.anomalies.length) {
+      r += `  ⚠ 오프셋 이탈 ${x.anomalies.length}쪽: `
+        + x.anomalies.slice(0, 15).map(a => `p${a.physical}(인쇄${a.printed})`).join(', ')
+        + (x.anomalies.length > 15 ? ' …' : '') + '\n';
+    }
+    for (const t of x.tocResults) {
+      const mark = t.status === 'ok' ? '·' : '⚠';
+      const res = t.status === 'ok' ? '일치'
+        : t.status === 'mismatch' ? `불일치 (실제 ${t.actualPrinted}, 차이 ${t.diff > 0 ? '+' : ''}${t.diff})`
+        : '본문에서 못 찾음';
+      r += `  ${mark} ${t.title} — 목차 p.${t.printedPage} → ${res}\n`;
+    }
   }
 
   // 상세 내역 — 페이지 → 위치 순 정렬
