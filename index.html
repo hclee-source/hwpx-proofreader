@@ -1588,6 +1588,20 @@
             <div class="jamo-toggle-desc">'항목:내용' → '항목: 내용' (시간·비율·URL 제외)</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="saisiotDetectToggle">
+          <input type="checkbox" id="saisiotDetectToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">사이시옷 표기 자동 검출</div>
+            <div class="jamo-toggle-desc">'대표값·임계값' → '대푯값·임곗값' 등 수학·통계 '값'계열 사이시옷</div>
+          </div>
+        </label>
+        <label class="jamo-toggle-wrap" for="trailingSpaceToggle">
+          <input type="checkbox" id="trailingSpaceToggle">
+          <div>
+            <div class="jamo-toggle-text">문단 끝 꼬리 공백 자동 검출</div>
+            <div class="jamo-toggle-desc">문단 끝에 남은 불필요한 공백을 감지합니다 (신뢰도 낮음 · 기본 꺼짐)</div>
+          </div>
+        </label>
         <div style="font-size:13px; color:var(--ink-muted); margin-bottom:10px;" id="ruleCountInfo"></div>
         <div class="actions">
           <button class="btn btn-primary" id="analyzeBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">⚡ 오류 검출 시작</button>
@@ -3721,6 +3735,74 @@ function detectColonSpacing(text) {
   return issues;
 }
 
+// ========== 사이시옷 표기 검출 ==========
+// 수학·통계 원고에서 흔한 '값'계열 사이시옷 오류를 표준 표기로 제안한다.
+// 목록은 표준국어대사전·교육부 편수자료 기준으로 확정된 것만 담아 오탐을 배제.
+const SAISIOT_PAIRS = [
+  ['대표값', '대푯값'], ['최대값', '최댓값'], ['최소값', '최솟값'],
+  ['극대값', '극댓값'], ['극소값', '극솟값'], ['기대값', '기댓값'],
+  ['근사값', '근삿값'], ['절대값', '절댓값'], ['함수값', '함숫값'],
+  ['초기값', '초깃값'], ['임계값', '임곗값'], ['경계값', '경곗값'],
+  ['꼭지점', '꼭짓점'],
+];
+function detectSaisiot(text) {
+  const issues = [];
+  for (const [wrong, right] of SAISIOT_PAIRS) {
+    let idx = 0;
+    while ((idx = text.indexOf(wrong, idx)) !== -1) {
+      // 매치 구간에 문단 구분자가 끼면 건너뜀 (XML 오염 방지)
+      if (text.slice(idx, idx + wrong.length).includes('\x01')) { idx += wrong.length; continue; }
+      issues.push({
+        ruleId: -7,
+        category: 'spelling',
+        categoryName: '사이시옷',
+        position: idx,
+        original: wrong,
+        suggestion: right,
+        confidence: 0.9,
+        contextBefore: text.substring(Math.max(0, idx - 12), idx).replace(/\x01/g, ''),
+        contextAfter:  text.substring(idx + wrong.length, idx + wrong.length + 12).replace(/\x01/g, ''),
+        selected: true,
+        description: `사이시옷 표기 (${wrong}→${right})`,
+      });
+      idx += wrong.length;
+    }
+  }
+  return issues;
+}
+
+// ========== 문단 끝 꼬리 공백 검출 ==========
+// originalText는 수식 간극도 \x01로 표시하므로 ' +(?=\x01)'로는 수식 앞 공백까지 오탐한다.
+// 따라서 문단 텍스트(parsed.paragraphs) 각각의 '끝'만 보고, 위치는 startInFull로 환산한다.
+// 보기 마커('①' 등 짧은 문단)는 수식이 뒤따르는 정상 공백이 많아 제외한다.
+function detectTrailingSpace(parsed) {
+  const issues = [];
+  if (!parsed || !parsed.paragraphs) return issues;
+  for (const para of parsed.paragraphs) {
+    const t = para.text;
+    if (!t || !t.trim()) continue;
+    if (t.trim().length <= 2) continue; // '① ' 같은 마커 문단 제외 (수식·이미지 앞 정상 공백)
+    const m = /[^\s\x01]( +)$/.exec(t); // 실제 글자 뒤 문단 끝 공백만
+    if (!m) continue;
+    const spaces = m[1];
+    const startInPara = t.length - spaces.length;
+    issues.push({
+      ruleId: -8,
+      category: 'spacing',
+      categoryName: '꼬리 공백',
+      position: para.startInFull + startInPara,
+      original: spaces,
+      suggestion: '',
+      confidence: 0.6,
+      contextBefore: t.substring(Math.max(0, startInPara - 15), startInPara).replace(/\x01/g, ''),
+      contextAfter: '',
+      selected: true,
+      description: '문단 끝 불필요한 공백',
+    });
+  }
+  return issues;
+}
+
 // ========== 오류 검출 ==========
 const HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph";
 const CAT_NAMES = { spelling: '맞춤법', spacing: '띄어쓰기', punct: '문장부호', terminology: '용어 일관성', custom: '기타' };
@@ -3960,6 +4042,7 @@ function extractTextFromSection(xmlString) {
     const tEls = pEl.getElementsByTagNameNS(ns, 't');
     const frags = [];
     let paraText = '';
+    let prevAppended = null; // 직전에 실제로 붙인 hp:t
 
     for (let ti = 0; ti < tEls.length; ti++) {
       const el = tEls[ti];
@@ -3970,7 +4053,19 @@ function extractTextFromSection(xmlString) {
       }
       if (anc !== pEl) continue; // 중첩된 다른 hp:p 소속 → 건너뜀
 
+      // 직전 hp:t와 현재 hp:t 사이에 수식(hp:equation)·개체 등 비텍스트 요소가 있으면
+      // \x01 구분자를 넣는다. 수식은 텍스트로 추출되지 않아 빈칸이 되는데, 구분자 없이
+      // 이어붙이면 '…이므로 [수식] 이고'가 '…이므로 이고'가 되어 조사 붙여쓰기(-2)가
+      // 유령 오탐을 내던 문제를 차단한다. (서식 경계만인 인접 hp:t는 그대로 이어붙여
+      // 굵게/색상 등을 넘는 패턴 검출은 유지)
+      if (prevAppended) {
+        const objBefore   = el.previousElementSibling && el.previousElementSibling.localName !== 't';
+        const objAfterPrev = prevAppended.nextElementSibling && prevAppended.nextElementSibling.localName !== 't';
+        if (objBefore || objAfterPrev) paraText += '\x01';
+      }
+
       paraText = appendTFragments(el, frags, paraText);
+      prevAppended = el;
     }
 
     if (frags.length === 0) continue;
@@ -4021,6 +4116,12 @@ analyzeBtn.addEventListener('click', async () => {
     }
     if (document.getElementById('colonSpaceToggle').checked) {
       sectionIssues.push(...detectColonSpacing(parsed.originalText));
+    }
+    if (document.getElementById('saisiotDetectToggle').checked) {
+      sectionIssues.push(...detectSaisiot(parsed.originalText));
+    }
+    if (document.getElementById('trailingSpaceToggle').checked) {
+      sectionIssues.push(...detectTrailingSpace(parsed));
     }
     // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거
     let safeIssues = sectionIssues.filter(iss => {
@@ -4091,7 +4192,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 뒤 공백 (자동)' };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)' };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -4760,6 +4861,12 @@ document.getElementById('undoBtn').addEventListener('click', () => {
       }
       if (document.getElementById('colonSpaceToggle').checked) {
         sIssues.push(...detectColonSpacing(a.originalText));
+      }
+      if (document.getElementById('saisiotDetectToggle').checked) {
+        sIssues.push(...detectSaisiot(a.originalText));
+      }
+      if (document.getElementById('trailingSpaceToggle').checked) {
+        sIssues.push(...detectTrailingSpace(a));
       }
       // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거 (분석 버튼과 동일 기준)
       sIssues = sIssues.filter(iss =>
@@ -5827,6 +5934,11 @@ loadExceptions();
   helpBtn.addEventListener('click', () => helpModal.classList.add('show'));
   helpClose.addEventListener('click', () => helpModal.classList.remove('show'));
   helpModal.addEventListener('click', e => { if (e.target === helpModal) helpModal.classList.remove('show'); });
+  // ESC로 닫기 — 최초 방문 시 이 가이드가 전체 화면을 덮어, 뒤의 버튼을 눌러도
+  // 반응이 없어 보이던 상황에서 가장 빠른 탈출 경로를 제공한다. (배경 클릭·닫기 버튼과 병행)
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && helpModal.classList.contains('show')) helpModal.classList.remove('show');
+  });
 
   // 최초 방문 1회 자동 표시 — 잘 만든 가이드가 '?' 버튼으로만 열려 발견성이 낮았다.
   // localStorage 플래그로 두 번째 방문부터는 뜨지 않는다.
@@ -7610,6 +7722,14 @@ function renderExamReport(rep, el, opts) {
   }
   let html = `<div style="margin-bottom:6px;">파싱: 문항 <b>${rep.nQ}</b>개 · 정답 <b>${rep.answersFound}</b>개 `
     + `(인라인 ${rep.nInline} / 오답노트 ${rep.nNote} / 접근Point ${rep.nPoint}) · 부정형 ${rep.negativeQuestions.length}문항</div>`;
+  // 문항은 찾았으나 정답을 하나도 못 뽑은 경우 → '이상 없음 ✓'은 오해를 부르는 공허한 통과다.
+  // (정답 형식 라디오가 실제 문서 형식과 다르면 이 상태가 된다) 검사 불가로 명확히 알린다.
+  if (!rep.answersFound) {
+    html += '<div style="color:var(--warning);font-weight:700;">정답을 하나도 찾지 못해 정합성 검사를 수행하지 못했습니다 — 정답 형식(인라인 / 하단 정답표) 선택이 문서와 맞는지 확인하세요.</div>';
+    html += '<div style="margin-top:6px;font-size:11px;color:var(--ink-faint);">※ 형식을 바꿔 다시 실행하면 정답이 인식됩니다.</div>';
+    el.innerHTML = html;
+    return;
+  }
   if (rep.skew.length) {
     const s = rep.skew.map(x => `${'①②③④⑤'[x.choice - 1]} ${x.count}개(${(x.ratio * 100).toFixed(1)}%)`).join(', ');
     html += `<div style="margin-bottom:6px;color:var(--warning);">⚠ 정답 분포 편향 후보 (10% 미만): ${s} — 먼저 파싱 누락을 의심할 것</div>`;
