@@ -1671,6 +1671,31 @@
           <button class="btn btn-secondary" id="previewBtn">👁 변경 미리보기</button>
           <button class="btn btn-secondary" id="reportBtn">📄 리포트 다운로드</button>
         </div>
+
+        <!-- AI 심층 검수 — 규칙이 못 잡는 비문·용어불일치·사실 오류를 Claude가 보완 -->
+        <div id="hwpxAiPanel" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:700;margin-bottom:3px;">🤖 AI 심층 검수</div>
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:10px;">규칙 검출을 마친 뒤 실행하세요. 비문·용어 불일치·명백한 사실 오류 등 규칙이 못 잡는 오류를 Claude가 보완합니다. 결과는 위 목록에 <b>AI·</b> 배지로 함께 표시됩니다.</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+            <input type="password" id="hwpxAiKey" placeholder="sk-ant-... (Anthropic API 키)"
+              style="flex:1;min-width:220px;font-size:12px;padding:6px 9px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--ink);">
+            <button id="hwpxAiKeyToggle" title="키 보기/숨기기"
+              style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:5px;padding:5px 9px;cursor:pointer;font-size:13px;color:var(--ink-soft);">👁</button>
+            <select id="hwpxAiModel"
+              style="flex-shrink:0;font-size:12px;padding:6px 9px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--ink);">
+              <option value="claude-haiku-4-5-20251001">Haiku (빠름·저렴)</option>
+              <option value="claude-sonnet-4-6">Sonnet (정확)</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+            <span style="font-size:11px;color:var(--ink-faint);white-space:nowrap;">채택 비율 상위</span>
+            <input type="range" id="hwpxAiRatio" min="30" max="100" value="70" style="flex:1;">
+            <span id="hwpxAiRatioVal" style="font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;">70%</span>
+          </div>
+          <button class="btn btn-primary" id="hwpxAiBtn" style="width:100%;">🤖 AI 심층 검수 실행</button>
+          <div id="hwpxAiStatus" style="font-size:11px;color:var(--ink-faint);margin-top:6px;text-align:center;min-height:14px;"></div>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:6px;line-height:1.6;">⚠️ API 키는 이 브라우저에 <b>평문 저장</b>됩니다(공용 PC 주의). AI 결과는 1차 후보이니 반드시 확인 후 채택하세요. 항목에 마우스를 올리면 AI 판단 이유가 표시됩니다.</div>
+        </div>
       </div>
 
       <!-- 문제집 검수 아코디언 — PDF 검수 기능의 HWPX 이식 (파일 로드만 하면 사용 가능) -->
@@ -4486,7 +4511,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)' };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)', '-99': 'AI 심층 검수' };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -4559,8 +4584,9 @@ function renderIssuesList() {
     const secLabel = multiSection && issue.sectionName
       ? `<span style="font-size:10px;color:var(--ink-faint);margin-left:4px;flex-shrink:0;">${escapeHtml(issue.sectionName.replace('Contents/', ''))}</span>`
       : '';
+    const reasonAttr = issue.aiReason ? ` title="AI: ${escapeHtml(issue.aiReason)}"` : '';
     return `
-    <div class="issue-row" data-id="${issue.globalId}">
+    <div class="issue-row" data-id="${issue.globalId}"${reasonAttr}>
       <input type="checkbox" class="issue-checkbox" data-id="${issue.globalId}" ${issue.selected ? 'checked' : ''}>
       <span class="issue-cat-badge">${escapeHtml(issue.categoryName)}</span>
       <div class="issue-context">
@@ -4585,7 +4611,117 @@ issuesList.addEventListener('change', e => {
 function updateSelectedCount() {
   const cnt = state.issues.filter(i => i.selected).length;
   document.getElementById('selectedCount').textContent = `${cnt}개 선택`;
-  setBtnEnabled('finalDownloadBtn', !!state.file);
+  // .hwp 읽기 전용은 교정 반영 불가 → 다운로드 버튼을 다시 켜지 않는다.
+  setBtnEnabled('finalDownloadBtn', !!state.file && !state.readOnly);
+}
+
+// ========== HWPX AI 심층 검수 (규칙이 못 잡는 비문·용어불일치·사실 오류) ==========
+const AI_CAT_MAP = { spelling: 'spelling', spacing: 'spacing', punct: 'punct', terminology: 'terminology', style: 'custom', content: 'custom', template: 'custom' };
+const AI_CAT_LABEL = { spelling: '맞춤법', spacing: '띄어쓰기', punct: '문장부호', style: '비문', terminology: '용어', content: '사실', template: '템플릿' };
+// AI가 반환한 original을 정규화 텍스트에서 정확히(길이 보존) 찾는다. 공백 붕괴 폴백은
+// 길이 불일치로 교정을 손상시킬 수 있어 제외하고, 원문 그대로/trim만 허용한다.
+function findAiMatch(text, needle) {
+  if (!needle) return null;
+  for (const s of [needle, needle.trim()]) {
+    if (!s) continue;
+    const pos = text.indexOf(s);
+    if (pos !== -1) return { pos, len: s.length };
+  }
+  return null;
+}
+async function hwpxRunAiDetect() {
+  const names = Object.keys(state.sectionAnalysis || {});
+  if (!names.length) { showToast('먼저 ⚡ 오류 검출을 실행하세요'); return; }
+  if (!window.hwpxAiCall) { showToast('AI 모듈 초기화 실패 — 페이지를 새로고침하세요'); return; }
+  const apiKey = (document.getElementById('hwpxAiKey').value || '').trim();
+  if (!apiKey) { showToast('Anthropic API 키를 입력하세요'); return; }
+  localStorage.setItem('hwpx_claude_api_key', apiKey);
+  const model = document.getElementById('hwpxAiModel').value;
+  const ratio = parseInt(document.getElementById('hwpxAiRatio').value, 10) / 100;
+  const btn = document.getElementById('hwpxAiBtn');
+  const status = document.getElementById('hwpxAiStatus');
+  btn.disabled = true;
+  status.style.color = '';
+  status.textContent = '청크 준비 중…';
+
+  // 섹션 originalText를 문단(\x01) 경계로 ~2200자 청크로 분할. \x01→\n 1:1 치환으로
+  // 문자 인덱스를 보존한다(정규화 텍스트에서 찾은 위치 = 원본 위치).
+  const CHUNK = 2200;
+  const chunks = [];
+  for (const name of names) {
+    const ot = state.sectionAnalysis[name].originalText || '';
+    let i = 0;
+    while (i < ot.length) {
+      let end = Math.min(ot.length, i + CHUNK);
+      if (end < ot.length) {
+        const bnd = ot.lastIndexOf('\x01', end);
+        if (bnd > i + 400) end = bnd;
+      }
+      chunks.push({ name, start: i, norm: ot.slice(i, end).replace(/\x01/g, '\n') });
+      i = end;
+    }
+  }
+  if (!chunks.length) { status.textContent = ''; btn.disabled = false; showToast('검수할 텍스트가 없습니다'); return; }
+
+  const call = window.hwpxAiCall.claude;
+  const allRaw = [];
+  let processed = 0, firstError = null, failed = 0;
+  const queue = [...chunks];
+  async function one() {
+    if (!queue.length) return;
+    const ch = queue.shift();
+    try {
+      const corr = await call(apiKey, model, ch.norm);
+      for (const c of corr) allRaw.push({ ch, c });
+    } catch (e) { if (!firstError) firstError = e; failed++; }
+    processed++;
+    status.textContent = `AI 검수 중… ${processed}/${chunks.length} 청크`;
+    await one();
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, one));
+    if (allRaw.length === 0 && firstError) throw firstError;
+
+    allRaw.sort((a, b) => (b.c.confidence ?? 0) - (a.c.confidence ?? 0));
+    const top = allRaw.slice(0, Math.max(1, Math.ceil(allRaw.length * ratio)));
+
+    // 기존 AI(-99) 결과 제거 후 재구성
+    state.issues = state.issues.filter(x => x.ruleId !== -99);
+    let added = 0;
+    for (const { ch, c } of top) {
+      const ot = state.sectionAnalysis[ch.name].originalText;
+      const m = findAiMatch(ch.norm, c.original);
+      if (!m) continue;
+      const globalPos = ch.start + m.pos;
+      const realOrig = ot.slice(globalPos, globalPos + m.len);
+      if (realOrig.includes('\x01')) continue;       // 문단·수식 경계를 넘으면 교정 안전상 제외
+      if (realOrig !== c.original && realOrig !== c.original.trim()) continue;
+      if (state.issues.some(x => x.ruleId === -99 && x.sectionName === ch.name && x.position === globalPos)) continue;
+      const cat = AI_CAT_MAP[c.category] || 'custom';
+      state.issues.push({
+        ruleId: -99, category: cat,
+        categoryName: 'AI·' + (AI_CAT_LABEL[c.category] || '검수'),
+        position: globalPos, original: realOrig, suggestion: c.suggestion || '',
+        confidence: Math.min(1, Math.max(0, c.confidence ?? 0.7)),
+        contextBefore: ot.substring(Math.max(0, globalPos - 15), globalPos).replace(/\x01/g, ''),
+        contextAfter: ot.substring(globalPos + m.len, globalPos + m.len + 15).replace(/\x01/g, ''),
+        selected: true, sectionName: ch.name, aiReason: c.reason || '',
+      });
+      added++;
+    }
+    state.issues.forEach((iss, idx) => { iss.globalId = idx; });
+    renderResults();
+    const failNote = failed ? ` (${failed}청크 실패)` : '';
+    status.style.color = 'var(--success)';
+    status.textContent = `완료 — AI ${allRaw.length}개 감지 중 ${added}개 반영${failNote}`;
+    showToast(`AI 심층 검수 완료 — ${added}건 추가${failNote}`, 4000);
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '실패: ' + e.message;
+    showToast('AI 검수 실패: ' + e.message, 5000);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 document.getElementById('selectAllBtn').addEventListener('click', () => {
@@ -4966,6 +5102,21 @@ function openPreviewModal() {
 function closePreviewModal() { document.getElementById('previewModal').classList.remove('show'); }
 document.getElementById('previewBtn').addEventListener('click', openPreviewModal);
 document.getElementById('previewModal').addEventListener('click', e => { if (e.target === document.getElementById('previewModal')) closePreviewModal(); });
+
+// ========== HWPX AI 심층 검수 UI 배선 ==========
+(function () {
+  const key = document.getElementById('hwpxAiKey');
+  const toggle = document.getElementById('hwpxAiKeyToggle');
+  const ratio = document.getElementById('hwpxAiRatio');
+  const ratioVal = document.getElementById('hwpxAiRatioVal');
+  const btn = document.getElementById('hwpxAiBtn');
+  if (!btn) return;
+  // PDF 검수 탭과 같은 키를 공유 (localStorage)
+  try { const saved = localStorage.getItem('hwpx_claude_api_key'); if (saved) key.value = saved; } catch (_) {}
+  toggle.addEventListener('click', () => { key.type = key.type === 'password' ? 'text' : 'password'; });
+  ratio.addEventListener('input', () => { ratioVal.textContent = ratio.value + '%'; });
+  btn.addEventListener('click', hwpxRunAiDetect);
+})();
 
 // ========== 프리셋 모달 ==========
 function openPresetModal() {
@@ -6392,6 +6543,10 @@ async function pdfCallOllamaApi(baseUrl, model, text) {
   const data = await resp.json();
   return parseAiJson(data.message?.content || '[]');
 }
+
+// HWPX 교정(script 3)에서도 같은 AI 호출·프롬프트를 쓰도록 window로 노출.
+// (script 4는 IIFE라 내부 선언이 전역이 아니므로 명시적으로 공유한다)
+window.hwpxAiCall = { claude: pdfCallClaudeApi, ollama: pdfCallOllamaApi };
 
 async function pdfTestOllamaConnection() {
   const url    = (document.getElementById('pdfOllamaUrl').value || '').trim();
