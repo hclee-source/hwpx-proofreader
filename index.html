@@ -4238,15 +4238,22 @@ async function inflateRawBrowser(u8) {
   // "Junk found after end of compressed data"를 던진다. 유효 출력은 그 전에 모두
   // chunks에 담기므로, 종료 단계의 정크 오류는 삼키고 수집분을 반환한다.
   const chunks = [];
+  let hadError = false;
   const readDone = (async () => {
     const reader = ds.readable.getReader();
     try { for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); } }
-    catch (_) { /* 후행 정크 — 무시 */ }
+    catch (_) { hadError = true; /* 후행 정크(정상) 또는 중간 손상 — 아래서 판정 */ }
   })();
   const writer = ds.writable.getWriter();
   try { await writer.write(u8); await writer.close(); }
-  catch (_) { /* 후행 정크로 인한 close 오류 — 무시 */ }
+  catch (_) { hadError = true; }
   await readDone;
+  // 후행 패딩 정크는 정상(유효 출력 다 나온 뒤)이지만, 중간 손상이면 텍스트가 잘려도
+  // 조용히 넘어가 오해를 부른다. 오류가 났고 출력이 입력 대비 비정상적으로 작으면 경고.
+  if (hadError) {
+    let got = 0; for (const c of chunks) got += c.length;
+    if (got < u8.length) console.warn('[HWP] 섹션 압축 해제가 조기 종료됐을 수 있습니다 — 일부 본문이 누락됐을 수 있음 (검출 결과가 불완전할 수 있음).');
+  }
   let total = 0; for (const c of chunks) total += c.length;
   if (!total) throw new Error('본문 압축 해제에 실패했습니다 (손상되었거나 지원하지 않는 형식)');
   const out = new Uint8Array(total); let o = 0;
@@ -4261,7 +4268,9 @@ function hwpParseCFB(u8) {
   const secSize = 1 << u16(0x1e), miniSize = 1 << u16(0x20);
   const nFAT = u32(0x2c), firstDir = u32(0x30), miniCutoff = u32(0x38);
   const firstMiniFAT = u32(0x3c), nMiniFAT = u32(0x40), firstDIFAT = u32(0x44);
-  const sec = i => u8.subarray(512 + i*secSize, 512 + (i+1)*secSize);
+  // 섹터 0은 헤더(항상 512B, 4096-섹터면 한 섹터 전체) 다음에 온다 → 오프셋 (i+1)*secSize.
+  // (512B 섹터면 512 + i*512 와 동일. HWP는 사실상 512B지만 4096-섹터 대비 정확히 처리)
+  const sec = i => u8.subarray((i+1)*secSize, (i+2)*secSize);
   const rd32 = (s, off) => (s[off] | (s[off+1]<<8) | (s[off+2]<<16) | (s[off+3]<<24)) >>> 0;
   let difat = [];
   for (let i = 0; i < 109; i++) { const v = u32(0x4c + i*4); if (v !== 0xffffffff) difat.push(v); }
@@ -4303,7 +4312,10 @@ function hwpParseRecords(data) {
     const header = dv.getUint32(p, true); p += 4;
     const tagID = header & 0x3ff;
     let size = (header >> 20) & 0xfff;
-    if (size === 0xfff) { size = dv.getUint32(p, true); p += 4; }
+    if (size === 0xfff) {
+      if (p + 4 > data.length) break; // 확장 크기 필드가 잘린 레코드 → 안전하게 종료
+      size = dv.getUint32(p, true); p += 4;
+    }
     if (tagID === HWPTAG_PARA_TEXT) paras.push(hwpDecodeParaText(data.subarray(p, p + size)));
     p += size;
   }
@@ -4446,12 +4458,24 @@ function extractTextFromSection(xmlString) {
   const textParts  = [];
   let globalOffset = 0;
 
+  // 텍스트로 추출되지 않는 '개체'(수식·그림 등) 목록 — hp:t 사이에 끼면 실제 시각적
+  // 간극이므로 \x01로 분리해야 오탐이 안 생긴다. run 경계를 넘는 배치(개체가 별도 run)도
+  // 문서 순서 비교로 정확히 잡는다(형제 검사만으로는 inter-run 케이스를 놓침).
+  const OBJ_TAGS = ['equation', 'pic', 'ole', 'container', 'chart', 'drawText', 'textart'];
+  const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
+
   for (let pi = 0; pi < pEls.length; pi++) {
     const pEl  = pEls[pi];
     const tEls = pEl.getElementsByTagNameNS(ns, 't');
     const frags = [];
     let paraText = '';
     let prevAppended = null; // 직전에 실제로 붙인 hp:t
+    // 이 문단의 개체 요소 수집 (없으면 빈 배열 → 간극 검사 즉시 false)
+    const objEls = [];
+    for (const tag of OBJ_TAGS) {
+      const l = pEl.getElementsByTagNameNS(ns, tag);
+      for (let k = 0; k < l.length; k++) objEls.push(l[k]);
+    }
 
     for (let ti = 0; ti < tEls.length; ti++) {
       const el = tEls[ti];
@@ -4462,15 +4486,15 @@ function extractTextFromSection(xmlString) {
       }
       if (anc !== pEl) continue; // 중첩된 다른 hp:p 소속 → 건너뜀
 
-      // 직전 hp:t와 현재 hp:t 사이에 수식(hp:equation)·개체 등 비텍스트 요소가 있으면
-      // \x01 구분자를 넣는다. 수식은 텍스트로 추출되지 않아 빈칸이 되는데, 구분자 없이
-      // 이어붙이면 '…이므로 [수식] 이고'가 '…이므로 이고'가 되어 조사 붙여쓰기(-2)가
-      // 유령 오탐을 내던 문제를 차단한다. (서식 경계만인 인접 hp:t는 그대로 이어붙여
-      // 굵게/색상 등을 넘는 패턴 검출은 유지)
-      if (prevAppended) {
-        const objBefore   = el.previousElementSibling && el.previousElementSibling.localName !== 't';
-        const objAfterPrev = prevAppended.nextElementSibling && prevAppended.nextElementSibling.localName !== 't';
-        if (objBefore || objAfterPrev) paraText += '\x01';
+      // 직전 hp:t와 현재 hp:t 사이(문서 순서)에 개체가 있으면 \x01 삽입.
+      // 수식은 빈칸으로 추출되므로 구분자 없이 이어붙이면 '…이므로 [수식] 이고'가
+      // '…이므로 이고'가 되어 조사 붙여쓰기(-2)가 유령 오탐을 내던 문제를 차단한다.
+      // (서식 경계만인 인접 hp:t는 개체가 없어 그대로 이어붙여 굵게/색상 넘는 검출 유지)
+      if (prevAppended && objEls.length) {
+        const gap = objEls.some(o =>
+          (prevAppended.compareDocumentPosition(o) & FOLLOWING) &&
+          (o.compareDocumentPosition(el) & FOLLOWING));
+        if (gap) paraText += '\x01';
       }
 
       paraText = appendTFragments(el, frags, paraText);
@@ -4801,6 +4825,10 @@ async function hwpxRunAiDetect() {
       const ot = state.sectionAnalysis[ch.name].originalText;
       const m = findAiMatch(ch.norm, c.original);
       if (!m) continue;
+      // 같은 청크에 동일 문자열이 여러 번이면 어느 위치를 지목했는지 알 수 없다 →
+      // 엉뚱한 인스턴스에 교정이 붙는 오적용을 막기 위해 모호한 매치는 건너뛴다.
+      const key = c.original.trim();
+      if (key && ch.norm.indexOf(key) !== ch.norm.lastIndexOf(key)) continue;
       const globalPos = ch.start + m.pos;
       const realOrig = ot.slice(globalPos, globalPos + m.len);
       if (realOrig.includes('\x01')) continue;       // 문단·수식 경계를 넘으면 교정 안전상 제외
