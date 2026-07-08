@@ -1595,6 +1595,13 @@
             <div class="jamo-toggle-desc">'대표값·임계값' → '대푯값·임곗값' 등 수학·통계 '값'계열 사이시옷</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="templateLeftoverToggle">
+          <input type="checkbox" id="templateLeftoverToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">템플릿 잔여물 자동 검출</div>
+            <div class="jamo-toggle-desc">'이하 同·캡션 약물·샘플 텍스트' 등 다른 템플릿에서 남은 자리표시자</div>
+          </div>
+        </label>
         <label class="jamo-toggle-wrap" for="durationGanToggle">
           <input type="checkbox" id="durationGanToggle" checked>
           <div>
@@ -3844,6 +3851,40 @@ function detectTrailingSpace(parsed) {
   return issues;
 }
 
+// ========== 템플릿 잔여물 검출 ==========
+// 다른 문서 템플릿에서 복사되며 남은 자리표시자·캡션 잔여물을 잡는다.
+// '약물' 같은 정상 단어의 오탐을 피하려고, 완성 원고엔 거의 없는 고신호 문구만 담는다.
+// (사용자가 자기 템플릿 표현을 규칙으로 추가해 확장하는 것을 전제로 한 시드 목록)
+const TEMPLATE_LEFTOVER = [
+  '이하 同', '이하同', '캡션 약물', '해당 약물은 캡션',
+  '제목을 입력하세요', '내용을 입력하세요', '여기에 내용을 입력',
+  '샘플 텍스트', '본문을 입력', 'Lorem ipsum', 'lorem ipsum',
+];
+function detectTemplateLeftover(text) {
+  const issues = [];
+  for (const marker of TEMPLATE_LEFTOVER) {
+    let idx = 0;
+    while ((idx = text.indexOf(marker, idx)) !== -1) {
+      if (text.slice(idx, idx + marker.length).includes('\x01')) { idx += marker.length; continue; }
+      issues.push({
+        ruleId: -10,
+        category: 'custom',
+        categoryName: '템플릿 잔여물',
+        position: idx,
+        original: marker,
+        suggestion: '',
+        confidence: 0.7,
+        contextBefore: text.substring(Math.max(0, idx - 12), idx).replace(/\x01/g, ''),
+        contextAfter:  text.substring(idx + marker.length, idx + marker.length + 12).replace(/\x01/g, ''),
+        selected: true,
+        description: `템플릿 잔여물 의심 ('${marker}') — 삭제 검토`,
+      });
+      idx += marker.length;
+    }
+  }
+  return issues;
+}
+
 // ========== 기간 '간' 붙여쓰기 검출 ==========
 // 숫자+시간단위 뒤의 '간'은 기간을 뜻하는 접미사 → 붙여 쓴다(10년간, 이틀간).
 // 의존명사 '간'(사람 간, 국가 간)과 구분하기 위해 '숫자+시간단위'가 앞설 때로 한정한다.
@@ -4192,6 +4233,9 @@ analyzeBtn.addEventListener('click', async () => {
     if (document.getElementById('durationGanToggle').checked) {
       sectionIssues.push(...detectDurationGan(parsed.originalText));
     }
+    if (document.getElementById('templateLeftoverToggle').checked) {
+      sectionIssues.push(...detectTemplateLeftover(parsed.originalText));
+    }
     if (document.getElementById('trailingSpaceToggle').checked) {
       sectionIssues.push(...detectTrailingSpace(parsed));
     }
@@ -4264,7 +4308,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)" };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)' };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -4939,6 +4983,9 @@ document.getElementById('undoBtn').addEventListener('click', () => {
       }
       if (document.getElementById('durationGanToggle').checked) {
         sIssues.push(...detectDurationGan(a.originalText));
+      }
+      if (document.getElementById('templateLeftoverToggle').checked) {
+        sIssues.push(...detectTemplateLeftover(a.originalText));
       }
       if (document.getElementById('trailingSpaceToggle').checked) {
         sIssues.push(...detectTrailingSpace(a));
@@ -6086,14 +6133,25 @@ function maskParensForSpacing(text) {
 
 // ── AI 교정 (Claude / Ollama 공통) ──────────────────────────
 const AI_PROOFREAD_PROMPT =
-  '당신은 한국어 교재 맞춤법·띄어쓰기 교정 전문가입니다.\n' +
-  '아래 텍스트에서 실제 오류만 찾아 JSON 배열로만 반환하세요.\n\n' +
-  '형식: [{"original":"오류문자열","suggestion":"교정안","category":"spelling|spacing|punct|style","confidence":0.0~1.0,"reason":"이유"}]\n\n' +
+  '당신은 한국어 교재를 검수하는 전문 교정자입니다.\n' +
+  '아래 텍스트에서 실제 오류만 찾아 JSON 배열로만 반환하세요. 규칙 기반 도구가 이미\n' +
+  '잡는 단순 맞춤법 외에, 사람이 읽어야 보이는 오류까지 폭넓게 봅니다.\n\n' +
+  '점검 범위:\n' +
+  '- spelling: 오탈자·맞춤법(되/돼, 율/률, 사이시옷 등)\n' +
+  '- spacing: 띄어쓰기\n' +
+  '- punct: 문장부호(콜론 앞뒤 공백, 따옴표·괄호 짝, 코드/JSON 구문 오류 등)\n' +
+  '- style: 비문·어색한 문장·주술 불일치·중복 표현(간결한 교정안 제시)\n' +
+  '- terminology: 같은 대상을 다른 용어로 쓴 표기 불일치(문서 안에서 한쪽으로 통일)\n' +
+  '- content: 명백한 사실·계산 오류(정답·수치·정의가 틀린 경우에 한함)\n' +
+  '- template: 다른 템플릿에서 남은 자리표시자·캡션 잔여물\n\n' +
+  '형식: [{"original":"오류문자열","suggestion":"교정안","category":"spelling|spacing|punct|style|terminology|content|template","confidence":0.0~1.0,"reason":"이유"}]\n\n' +
   '규칙:\n' +
-  '- original은 실제 텍스트에 그대로 존재하는 짧은 문자열\n' +
+  '- original은 실제 텍스트에 그대로 존재하는 짧은 문자열(그대로 복사, 요약·의역 금지)\n' +
+  '- suggestion은 그 자리에 넣을 실제 교정 텍스트(설명이 아니라 대체 문자열). 삭제면 빈 문자열\n' +
+  '- 확신이 서는 것만: 취향·문체 선호로 인한 주관적 고침은 제외해 오탐을 줄인다\n' +
+  '- content/terminology는 확실할 때만 confidence 0.7 이상으로 보고\n' +
   '- confidence: 1.0=확실한 오류, 0.7=높은 의심, 0.5=낮은 의심\n' +
-  '- 신뢰도 높은 순으로 정렬\n' +
-  '- 오류 없으면 []\n' +
+  '- 신뢰도 높은 순으로 정렬, 오류 없으면 []\n' +
   '- JSON 배열만 반환, 다른 설명 없음\n\n' +
   '텍스트:\n';
 
