@@ -1,0 +1,6 @@
+# Claude Code worktrees / 로컬 작업 산출물
+.claude/worktrees/
+
+# OS / 편집기 잔재
+Thumbs.db
+.DS_Store
