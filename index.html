@@ -1465,11 +1465,11 @@
       <div class="drop-zone" id="dropZone">
         <span class="dz-icon">📄</span>
         <div class="dz-body">
-          <div class="dz-main">HWPX 파일을 끌어다 놓거나 클릭하세요</div>
-          <div class="dz-sub">한글 2014 이상 .hwpx 지원 — 교정·서식·전처리 탭 공통 사용</div>
+          <div class="dz-main">HWPX·HWP 파일을 끌어다 놓거나 클릭하세요</div>
+          <div class="dz-sub">.hwpx 전체 기능 · .hwp는 오류 검출 전용(교정 반영·다운로드는 .hwpx로 변환)</div>
         </div>
         <span class="dz-cta">파일 선택 →</span>
-        <input type="file" id="fileInput" accept=".hwpx" style="display:none">
+        <input type="file" id="fileInput" accept=".hwpx,.hwp" style="display:none">
       </div>
       <div class="file-info" id="fileInfo">
         <div class="fi-badge">✓</div>
@@ -3185,12 +3185,15 @@ if (changeFileBtn) changeFileBtn.addEventListener('click', () => {
 });
 
 async function handleFile(file) {
-  if (!file.name.toLowerCase().endsWith('.hwpx')) {
-    showToast('HWPX 파일만 지원합니다');
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.hwp')) { return handleHwpFile(file); } // .hwp = 읽기 전용 경로
+  if (!lower.endsWith('.hwpx')) {
+    showToast('HWPX·HWP 파일만 지원합니다');
     return;
   }
 
   // 이전 분석 결과 초기화
+  state.readOnly = false;
   state.issues = [];
   state.sectionAnalysis = {};
   state.undoStack = [];
@@ -4095,6 +4098,174 @@ function applyCorrection(analysis, globalPos, origLen, replText, expectedText) {
   return true;
 }
 
+// ========== .hwp(한글 바이너리) 읽기 전용 텍스트 추출 ==========
+// .hwp는 OLE2 복합문서 + zlib(raw deflate) 압축 + 레코드 기반 본문.
+// 교정 반영(쓰기)은 지원하지 않고 검출 전용으로만 연다. 표 셀 텍스트까지 포함된다.
+async function inflateRawBrowser(u8) {
+  if (typeof DecompressionStream === 'undefined')
+    throw new Error('이 브라우저는 .hwp 압축 해제를 지원하지 않습니다 (최신 Chrome 권장)');
+  const ds = new DecompressionStream('deflate-raw');
+  // 읽기를 먼저 시작해 두고(동시 실행) 써야 백프레셔 데드락이 안 난다.
+  // HWP 섹션은 deflate 스트림 뒤에 패딩이 붙어 있어 DecompressionStream이 끝에서
+  // "Junk found after end of compressed data"를 던진다. 유효 출력은 그 전에 모두
+  // chunks에 담기므로, 종료 단계의 정크 오류는 삼키고 수집분을 반환한다.
+  const chunks = [];
+  const readDone = (async () => {
+    const reader = ds.readable.getReader();
+    try { for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); } }
+    catch (_) { /* 후행 정크 — 무시 */ }
+  })();
+  const writer = ds.writable.getWriter();
+  try { await writer.write(u8); await writer.close(); }
+  catch (_) { /* 후행 정크로 인한 close 오류 — 무시 */ }
+  await readDone;
+  let total = 0; for (const c of chunks) total += c.length;
+  if (!total) throw new Error('본문 압축 해제에 실패했습니다 (손상되었거나 지원하지 않는 형식)');
+  const out = new Uint8Array(total); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+function hwpParseCFB(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const u16 = o => dv.getUint16(o, true), u32 = o => dv.getUint32(o, true);
+  const SIG = [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1];
+  for (let i = 0; i < 8; i++) if (u8[i] !== SIG[i]) throw new Error('OLE2 형식이 아닙니다');
+  const secSize = 1 << u16(0x1e), miniSize = 1 << u16(0x20);
+  const nFAT = u32(0x2c), firstDir = u32(0x30), miniCutoff = u32(0x38);
+  const firstMiniFAT = u32(0x3c), nMiniFAT = u32(0x40), firstDIFAT = u32(0x44);
+  const sec = i => u8.subarray(512 + i*secSize, 512 + (i+1)*secSize);
+  const rd32 = (s, off) => (s[off] | (s[off+1]<<8) | (s[off+2]<<16) | (s[off+3]<<24)) >>> 0;
+  let difat = [];
+  for (let i = 0; i < 109; i++) { const v = u32(0x4c + i*4); if (v !== 0xffffffff) difat.push(v); }
+  let dsIdx = firstDIFAT, g = 0;
+  while (dsIdx !== 0xfffffffe && dsIdx !== 0xffffffff && g++ < 1e6) {
+    const s = sec(dsIdx);
+    for (let i = 0; i < (secSize/4)-1; i++) { const v = rd32(s, i*4); if (v !== 0xffffffff) difat.push(v); }
+    dsIdx = rd32(s, secSize-4);
+  }
+  const FAT = [];
+  for (let k = 0; k < nFAT; k++) { const s = sec(difat[k]); for (let i = 0; i < secSize/4; i++) FAT.push(rd32(s, i*4)); }
+  const chain = start => { const out = []; let c = start, gg = 0; while (c !== 0xfffffffe && c !== 0xffffffff && gg++ < 1e7) { out.push(c); c = FAT[c]; } return out; };
+  const concat = arrs => { let len = 0; for (const a of arrs) len += a.length; const out = new Uint8Array(len); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
+  const readChain = (start, size) => { const all = concat(chain(start).map(sec)); return size != null ? all.subarray(0, size) : all; };
+  const dirBuf = concat(chain(firstDir).map(sec));
+  const ddv = new DataView(dirBuf.buffer, dirBuf.byteOffset, dirBuf.byteLength);
+  const entries = [];
+  for (let o = 0; o + 128 <= dirBuf.length; o += 128) {
+    const nameLen = ddv.getUint16(o + 64, true);
+    if (nameLen === 0) continue;
+    let name = '';
+    for (let i = 0; i < (nameLen/2) - 1; i++) name += String.fromCharCode(ddv.getUint16(o + i*2, true));
+    entries.push({ name, type: dirBuf[o+66], start: ddv.getUint32(o+116, true), size: ddv.getUint32(o+120, true) });
+  }
+  const root = entries.find(e => e.type === 5);
+  const miniStream = root ? readChain(root.start, root.size) : new Uint8Array(0);
+  const miniFAT = [];
+  if (nMiniFAT) { const mf = concat(chain(firstMiniFAT).map(sec)); for (let i = 0; i < mf.length/4; i++) miniFAT.push(rd32(mf, i*4)); }
+  const readMini = (start, size) => { let c = start, gg = 0; const parts = []; while (c !== 0xfffffffe && c !== 0xffffffff && gg++ < 1e7) { parts.push(miniStream.subarray(c*miniSize, (c+1)*miniSize)); c = miniFAT[c]; } return concat(parts).subarray(0, size); };
+  const readStream = e => e.size < miniCutoff ? readMini(e.start, e.size) : readChain(e.start, e.size);
+  return { entries, readStream };
+}
+const HWPTAG_PARA_TEXT = 67;
+function hwpParseRecords(data) {
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const paras = [];
+  let p = 0;
+  while (p + 4 <= data.length) {
+    const header = dv.getUint32(p, true); p += 4;
+    const tagID = header & 0x3ff;
+    let size = (header >> 20) & 0xfff;
+    if (size === 0xfff) { size = dv.getUint32(p, true); p += 4; }
+    if (tagID === HWPTAG_PARA_TEXT) paras.push(hwpDecodeParaText(data.subarray(p, p + size)));
+    p += size;
+  }
+  return paras.join('\n');
+}
+function hwpDecodeParaText(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let out = ''; const n = (buf.length / 2) | 0;
+  for (let i = 0; i < n;) {
+    const c = dv.getUint16(i*2, true);
+    if (c < 32) {
+      if (c === 10) { out += '\n'; i += 1; }
+      else if (c === 0 || c === 13 || (c >= 24 && c <= 31)) { i += 1; } // char control
+      else { i += 8; } // inline/extended control = 8 wchar
+    } else { out += String.fromCharCode(c); i += 1; }
+  }
+  return out;
+}
+async function hwpExtractSections(u8) {
+  const { entries, readStream } = hwpParseCFB(u8);
+  const fh = entries.find(e => e.name === 'FileHeader');
+  if (!fh) throw new Error('HWP FileHeader가 없습니다');
+  const fhData = readStream(fh);
+  let sigStr = ''; for (let i = 0; i < 17; i++) sigStr += String.fromCharCode(fhData[i]);
+  if (sigStr !== 'HWP Document File') throw new Error('HWP 5.0 문서가 아닙니다');
+  const dvf = new DataView(fhData.buffer, fhData.byteOffset, fhData.byteLength);
+  const flags = dvf.getUint32(36, true);
+  if (flags & 2) throw new Error('암호화된 HWP는 지원하지 않습니다');
+  const compressed = !!(flags & 1);
+  const secs = entries.filter(e => e.type === 2 && /^Section\d+$/.test(e.name))
+    .sort((a, b) => (+a.name.slice(7)) - (+b.name.slice(7)));
+  if (!secs.length) throw new Error('BodyText 섹션을 찾지 못했습니다');
+  const out = [];
+  for (const s of secs) {
+    const raw = readStream(s);
+    const data = compressed ? await inflateRawBrowser(raw) : raw;
+    out.push(hwpParseRecords(data));
+  }
+  return out;
+}
+// 읽기 전용 parsed 구조 — 검출기는 originalText/paragraphs만 쓰므로 doc·frags는 비운다.
+function buildReadOnlyParsed(text) {
+  const rawParas = text.split('\n');
+  const paragraphs = [], parts = [];
+  let off = 0;
+  for (const t of rawParas) {
+    paragraphs.push({ text: t, frags: [], startInFull: off });
+    parts.push(t);
+    off += t.length + 1;
+  }
+  return { doc: null, fragments: [], paragraphs, originalText: parts.join('\x01') };
+}
+async function handleHwpFile(file) {
+  // 이전 상태 초기화 (handleFile과 동일)
+  state.issues = []; state.sectionAnalysis = {}; state.undoStack = [];
+  resultsPanel.classList.add('hidden');
+  const undoBtnEl = document.getElementById('undoBtn');
+  undoBtnEl.classList.add('hidden'); undoBtnEl.textContent = '↩ 교정 취소 (Undo)';
+  state.file = file; state.zip = null; state.readOnly = true; state.sectionFiles = {}; state.hwpParsed = {};
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = `${(file.size / 1024).toFixed(1)} KB`;
+  const scEl = document.getElementById('fileSectionCount');
+  if (scEl) scEl.textContent = '';
+  fileInfo.classList.add('show');
+  dropZone.style.display = 'none';
+  try {
+    setProgress(20);
+    const u8 = new Uint8Array(await file.arrayBuffer());
+    const sections = await hwpExtractSections(u8);
+    setProgress(80);
+    sections.forEach((text, i) => { state.hwpParsed['Section' + i] = buildReadOnlyParsed(text); });
+    setProgress(100);
+    setBtnEnabled('analyzeBtn', true);
+    // 교정 반영·다운로드·문제집 검수는 .hwp에서 지원 불가
+    const dl = document.getElementById('finalDownloadBtn');
+    if (dl) { dl.disabled = true; dl.dataset.disabledHint = '.hwp는 읽기 전용입니다 — 교정 반영·다운로드는 .hwpx로 변환 후 사용하세요'; dl.title = dl.dataset.disabledHint; }
+    ['hwpxExamCheckBtn', 'hwpxAnswerStatsBtn'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) { b.disabled = true; b.dataset.disabledHint = '.hwp 읽기 전용 모드에서는 문제집 검수를 지원하지 않습니다'; b.title = b.dataset.disabledHint; }
+    });
+    if (scEl) scEl.textContent = ` · ${sections.length}개 섹션 · 읽기 전용`;
+    showToast(`.hwp 읽기 전용 로드 — 오류 검출만 가능(교정 반영·다운로드 불가). ${sections.length}개 섹션`, 5500);
+  } catch (err) {
+    setProgress(100);
+    showToast('.hwp 열기 실패: ' + err.message, 6000);
+    console.error(err);
+    dropZone.style.display = ''; fileInfo.classList.remove('show');
+  }
+}
+
 function extractTextFromSection(xmlString) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlString, 'text/xml');
@@ -4202,7 +4373,8 @@ function extractTextFromSection(xmlString) {
 
 // ========== 분석 실행 ==========
 analyzeBtn.addEventListener('click', async () => {
-  if (!state.file || !state.zip) { showToast('먼저 HWPX 파일을 업로드하세요'); return; }
+  // .hwp 읽기 전용은 zip이 없다(state.hwpParsed 사용). readOnly면 zip 요구를 건너뛴다.
+  if (!state.file || (!state.readOnly && !state.zip)) { showToast('먼저 HWPX·HWP 파일을 업로드하세요'); return; }
 
   analyzeBtn.disabled = true;
   setProgress(10);
@@ -4210,10 +4382,11 @@ analyzeBtn.addEventListener('click', async () => {
   state.sectionAnalysis = {};
   regexErrorRules.clear(); // 이번 분석의 정규식 오류만 집계
 
-  const sectionNames = Object.keys(state.sectionFiles);
+  const sectionNames = state.readOnly ? Object.keys(state.hwpParsed) : Object.keys(state.sectionFiles);
   for (let s = 0; s < sectionNames.length; s++) {
     const name = sectionNames[s];
-    const parsed = extractTextFromSection(state.sectionFiles[name]);
+    // .hwp(읽기 전용)는 로드 시 이미 파싱해 둔 결과를 쓰고, .hwpx는 XML에서 즉시 추출한다.
+    const parsed = state.readOnly ? state.hwpParsed[name] : extractTextFromSection(state.sectionFiles[name]);
     state.sectionAnalysis[name] = { doc: parsed.doc, paragraphs: parsed.paragraphs, fragments: parsed.fragments, originalText: parsed.originalText };
     setProgress(20 + (s / sectionNames.length) * 60);
 
@@ -4260,8 +4433,12 @@ analyzeBtn.addEventListener('click', async () => {
 
   const totalFragments = Object.values(state.sectionAnalysis).reduce((sum, s) => sum + s.fragments.length, 0);
   const totalChars = Object.values(state.sectionAnalysis).reduce((sum, s) => sum + s.originalText.length, 0);
+  // .hwp 읽기 전용은 frag가 없으므로(교정 대상 노드 없음) 글자 수로 추출 성공을 판정한다.
+  const totalBlocks = state.readOnly
+    ? Object.values(state.sectionAnalysis).reduce((sum, s) => sum + s.paragraphs.length, 0)
+    : totalFragments;
 
-  if (totalFragments === 0) {
+  if (totalChars === 0) {
     showToast('⚠️ 텍스트를 추출하지 못했습니다. 파일을 다시 업로드해보세요.', 5000);
     analyzeBtn.disabled = false;
     return;
@@ -4271,7 +4448,8 @@ analyzeBtn.addEventListener('click', async () => {
   resultsPanel.classList.remove('hidden');
   resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   analyzeBtn.disabled = false;
-  showToast(`${totalFragments}개 블록·${totalChars.toLocaleString()}자 분석 → ${allIssues.length}건 검출`);
+  const roNote = state.readOnly ? ' · 읽기 전용(교정 반영 불가)' : '';
+  showToast(`${totalBlocks}개 블록·${totalChars.toLocaleString()}자 분석 → ${allIssues.length}건 검출${roNote}`);
   // 정규식 오류로 적용되지 못한 규칙이 있으면 조용히 넘어가지 않고 통지 (기존엔 console만)
   if (regexErrorRules.size) {
     const ids = [...regexErrorRules.keys()];
@@ -4594,6 +4772,7 @@ document.getElementById('reportBtn').addEventListener('click', () => {
 
 // ========== 최종 통합 다운로드 ==========
 document.getElementById('finalDownloadBtn').addEventListener('click', async () => {
+  if (state.readOnly) { showToast('.hwp는 읽기 전용입니다 — 교정 반영·다운로드는 한글에서 .hwpx로 저장 후 사용하세요', 5000); return; }
   if (!state.zip || !state.file) { showToast('파일을 먼저 로드하세요'); return; }
 
   const btn = document.getElementById('finalDownloadBtn');
