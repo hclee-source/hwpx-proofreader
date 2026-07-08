@@ -1584,8 +1584,8 @@
         <label class="jamo-toggle-wrap" for="colonSpaceToggle">
           <input type="checkbox" id="colonSpaceToggle">
           <div>
-            <div class="jamo-toggle-text">콜론 뒤 공백 자동 검출</div>
-            <div class="jamo-toggle-desc">'항목:내용' → '항목: 내용' (시간·비율·URL 제외)</div>
+            <div class="jamo-toggle-text">콜론 앞뒤 공백 자동 검출</div>
+            <div class="jamo-toggle-desc">'항목:내용'→'항목: 내용', '시스템 :'→'시스템:' (시간·비율·URL 제외)</div>
           </div>
         </label>
         <label class="jamo-toggle-wrap" for="saisiotDetectToggle">
@@ -1593,6 +1593,13 @@
           <div>
             <div class="jamo-toggle-text">사이시옷 표기 자동 검출</div>
             <div class="jamo-toggle-desc">'대표값·임계값' → '대푯값·임곗값' 등 수학·통계 '값'계열 사이시옷</div>
+          </div>
+        </label>
+        <label class="jamo-toggle-wrap" for="durationGanToggle">
+          <input type="checkbox" id="durationGanToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">기간 '간' 붙여쓰기 자동 검출</div>
+            <div class="jamo-toggle-desc">'10년 간·이틀 간' → '10년간·이틀간' (숫자+시간단위 뒤 접미사만)</div>
           </div>
         </label>
         <label class="jamo-toggle-wrap" for="trailingSpaceToggle">
@@ -2586,6 +2593,13 @@ const PRESETS = [
       // 외래어 표기 통일 추가
       { category: 'terminology', type: 'literal', original: '캐쉬', replacement: '캐시', description: '캐시(cache) 외래어 표기 (캐쉬→캐시)', confidence: 0.97 },
       { category: 'terminology', type: 'literal', original: '파라미터', replacement: '매개변수', description: 'parameter → 매개변수 (국문 우선)', confidence: 0.75 },
+      // 외래어 표기 통일 3차 (실제 원고 감사에서 확인된 빈출 오표기)
+      { category: 'terminology', type: 'literal', original: '스탠다드', replacement: '스탠더드', description: '스탠더드(standard) 외래어 표기 (스탠다드→스탠더드)', confidence: 0.9 },
+      { category: 'terminology', type: 'literal', original: '컨텐츠', replacement: '콘텐츠', description: '콘텐츠(contents) 외래어 표기 (컨텐츠→콘텐츠)', confidence: 0.95 },
+      { category: 'terminology', type: 'literal', original: '악세스', replacement: '액세스', description: '액세스(access) 외래어 표기 (악세스→액세스)', confidence: 0.95 },
+      { category: 'terminology', type: 'literal', original: '타겟', replacement: '타깃', description: '타깃(target) 외래어 표기 (타겟→타깃)', confidence: 0.9 },
+      { category: 'terminology', type: 'literal', original: '리더쉽', replacement: '리더십', description: '리더십(leadership) 외래어 표기 (리더쉽→리더십)', confidence: 0.95 },
+      { category: 'terminology', type: 'literal', original: '멤버쉽', replacement: '멤버십', description: '멤버십(membership) 외래어 표기 (멤버쉽→멤버십)', confidence: 0.95 },
     ]
   },
   {
@@ -3703,7 +3717,7 @@ function detectParticleSpacing(text) {
   return issues;
 }
 
-// ========== 콜론 뒤 공백 검출 ==========
+// ========== 콜론 앞뒤 공백 검출 ==========
 function detectColonSpacing(text) {
   const issues = [];
   const re = /:[^\s\n]/g;
@@ -3730,6 +3744,33 @@ function detectColonSpacing(text) {
       contextAfter:  text.substring(pos + 2, pos + 12).replace(/\x01/g, ''),
       selected: true,
       description: '콜론 뒤 공백 없음',
+    });
+  }
+  // 콜론 앞 공백: '네트워크 저장 시스템 :' → '…시스템:' (라벨 앞 공백은 조판 오류)
+  const reBefore = /([가-힣A-Za-z0-9)\]])( +):/g;
+  let mb;
+  while ((mb = reBefore.exec(text)) !== null) {
+    const sp = mb[2];
+    const spStart = mb.index + mb[1].length;
+    const colonPos = spStart + sp.length;
+    const beforeCh = mb[1];
+    // 콜론 뒤 첫 비공백 문자로 판정 (콜론 바로 뒤가 공백일 수 있음: '10 : 30')
+    const afterM = text.slice(colonPos + 1).match(/^[ \t]*([^\s\x01])/);
+    const after = afterM ? afterM[1] : '';
+    if (after === ':' || beforeCh === ':') continue; // :: 이중 콜론
+    if (/\d/.test(beforeCh) && /\d/.test(after)) continue; // 10 : 30 — 시간·비율
+    issues.push({
+      ruleId: -4,
+      category: 'spacing',
+      categoryName: '콜론 앞 공백',
+      position: spStart,
+      original: sp + ':',
+      suggestion: ':',
+      confidence: 0.8,
+      contextBefore: text.substring(Math.max(0, spStart - 10), spStart).replace(/\x01/g, ''),
+      contextAfter:  text.substring(colonPos + 1, colonPos + 11).replace(/\x01/g, ''),
+      selected: true,
+      description: '콜론 앞 불필요한 공백',
     });
   }
   return issues;
@@ -3798,6 +3839,34 @@ function detectTrailingSpace(parsed) {
       contextAfter: '',
       selected: true,
       description: '문단 끝 불필요한 공백',
+    });
+  }
+  return issues;
+}
+
+// ========== 기간 '간' 붙여쓰기 검출 ==========
+// 숫자+시간단위 뒤의 '간'은 기간을 뜻하는 접미사 → 붙여 쓴다(10년간, 이틀간).
+// 의존명사 '간'(사람 간, 국가 간)과 구분하기 위해 '숫자+시간단위'가 앞설 때로 한정한다.
+function detectDurationGan(text) {
+  const issues = [];
+  const re = /([0-9]+ *(?:년|개월|달|주일|주|일|시간|분|초))( +)간(?=[\s\x01.,)\]]|$)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const sp = m[2];
+    if (sp.includes('\x01')) continue;
+    const spStart = m.index + m[1].length;
+    issues.push({
+      ruleId: -9,
+      category: 'spacing',
+      categoryName: '기간 붙여쓰기',
+      position: spStart,
+      original: sp + '간',
+      suggestion: '간',
+      confidence: 0.8,
+      contextBefore: text.substring(Math.max(0, spStart - 10), spStart).replace(/\x01/g, ''),
+      contextAfter:  text.substring(spStart + sp.length + 1, spStart + sp.length + 11).replace(/\x01/g, ''),
+      selected: true,
+      description: "기간 접미사 '간' 붙여쓰기",
     });
   }
   return issues;
@@ -4120,6 +4189,9 @@ analyzeBtn.addEventListener('click', async () => {
     if (document.getElementById('saisiotDetectToggle').checked) {
       sectionIssues.push(...detectSaisiot(parsed.originalText));
     }
+    if (document.getElementById('durationGanToggle').checked) {
+      sectionIssues.push(...detectDurationGan(parsed.originalText));
+    }
     if (document.getElementById('trailingSpaceToggle').checked) {
       sectionIssues.push(...detectTrailingSpace(parsed));
     }
@@ -4192,7 +4264,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)' };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)" };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -4864,6 +4936,9 @@ document.getElementById('undoBtn').addEventListener('click', () => {
       }
       if (document.getElementById('saisiotDetectToggle').checked) {
         sIssues.push(...detectSaisiot(a.originalText));
+      }
+      if (document.getElementById('durationGanToggle').checked) {
+        sIssues.push(...detectDurationGan(a.originalText));
       }
       if (document.getElementById('trailingSpaceToggle').checked) {
         sIssues.push(...detectTrailingSpace(a));
