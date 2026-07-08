@@ -1602,6 +1602,20 @@
             <div class="jamo-toggle-desc">'이하 同·캡션 약물·샘플 텍스트' 등 다른 템플릿에서 남은 자리표시자</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="dupWordToggle">
+          <input type="checkbox" id="dupWordToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">중복 어절 자동 검출</div>
+            <div class="jamo-toggle-desc">'퍼셉트론퍼셉트론은'처럼 같은 어절이 곧바로 반복된 오타 (첩어 제외)</div>
+          </div>
+        </label>
+        <label class="jamo-toggle-wrap" for="styleMixToggle">
+          <input type="checkbox" id="styleMixToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">문체(경어체) 혼용 자동 검출</div>
+            <div class="jamo-toggle-desc">한 문단에 해요체·합니다체가 섞인 곳을 표시 (검토용 · 자동수정 안 함)</div>
+          </div>
+        </label>
         <label class="jamo-toggle-wrap" for="durationGanToggle">
           <input type="checkbox" id="durationGanToggle" checked>
           <div>
@@ -2113,6 +2127,20 @@
         <div>
           <span style="font-size:12px;color:var(--ink-soft);">표기 일관성 검사 (용어사전)</span>
           <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">문서 전체 빈도 대조 — 소수파 표기 위치 검출</div>
+        </div>
+      </label>
+      <label class="jamo-toggle-wrap" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseDupWord" checked style="margin-top:2px;">
+        <div>
+          <span style="font-size:12px;color:var(--ink-soft);">중복 어절 검출</span>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">'퍼셉트론퍼셉트론은' 같은 반복 오타 (첩어 제외)</div>
+        </div>
+      </label>
+      <label class="jamo-toggle-wrap" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;">
+        <input type="checkbox" id="pdfUseStyleMix" checked style="margin-top:2px;">
+        <div>
+          <span style="font-size:12px;color:var(--ink-soft);">문체(경어체) 혼용 검출</span>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:1px;">해요체·합니다체 공존 페이지 표시 (검토용)</div>
         </div>
       </label>
     </div>
@@ -3913,6 +3941,81 @@ function detectTemplateLeftover(text) {
   return issues;
 }
 
+// ========== 문체(경어체) 혼용 검출 ==========
+// pdf-proofreader 스킬 3.5단계 이식. 한 문단(문장 세그먼트) 안에 해요체와 합니다체가
+// 함께 나오면 문체 혼용 후보로 뽑는다. 문서 다수 문체를 빈도로 정해 소수 어미를 지적.
+// 문체 변환은 문맥 의존이라 자동수정하지 않고(선택 해제 상태) 위치만 알린다.
+const STYLE_HAEYO_SRC = '(?:에요|예요|해요|거예요|봐요|돼요|세요|이에요)';
+const STYLE_HAMNIDA_SRC = '(?:합니다|입니다|습니다|됩니다|십니다)';
+function detectStyleMix(text) {
+  const nH = (text.match(new RegExp(STYLE_HAEYO_SRC, 'g')) || []).length;
+  const nF = (text.match(new RegExp(STYLE_HAMNIDA_SRC, 'g')) || []).length;
+  if (!nH || !nF) return []; // 한 문체만 쓰이면 혼용 아님
+  const domHamnida = nF >= nH;
+  const map = domHamnida
+    ? { '해요': '합니다', '돼요': '됩니다', '예요': '입니다', '이에요': '입니다', '에요': '입니다', '거예요': '것입니다', '봐요': '봅니다', '세요': '하십시오' }
+    : { '합니다': '해요', '됩니다': '돼요', '입니다': '이에요', '습니다': '어요', '십니다': '세요' };
+  const issues = [];
+  const segRe = /[^\n\x01]+/g; // 문단·줄 세그먼트 (경계 넘지 않게)
+  let seg;
+  while ((seg = segRe.exec(text)) !== null) {
+    const s = seg[0], base = seg.index;
+    const hasH = new RegExp(STYLE_HAEYO_SRC).test(s);
+    const hasF = new RegExp(STYLE_HAMNIDA_SRC).test(s);
+    if (!(hasH && hasF)) continue; // 같은 세그먼트에 두 문체 공존만
+    const targetRe = new RegExp(domHamnida ? STYLE_HAEYO_SRC : STYLE_HAMNIDA_SRC, 'g');
+    let m;
+    while ((m = targetRe.exec(s)) !== null) {
+      const ending = m[0];
+      const pos = base + m.index;
+      issues.push({
+        ruleId: -11,
+        category: 'custom',
+        categoryName: '문체 혼용',
+        position: pos,
+        original: ending,
+        suggestion: map[ending] || ending,
+        confidence: 0.5,
+        selected: false, // 문맥 의존 → 자동 채택하지 않고 검토용으로만 표시
+        contextBefore: text.substring(Math.max(0, pos - 12), pos).replace(/\x01/g, ''),
+        contextAfter:  text.substring(pos + ending.length, pos + ending.length + 12).replace(/\x01/g, ''),
+        description: `문체 혼용 — 다수 문체(${domHamnida ? '합니다체' : '해요체'})와 섞임, 통일 검토`,
+      });
+    }
+  }
+  return issues;
+}
+
+// ========== 조사-결합 중복 어절 검출 ==========
+// pdf-proofreader 스킬 4단계 이식. '퍼셉트론퍼셉트론은'처럼 같은 어절이 곧바로 반복되고
+// 뒤에 조사가 붙은 경우만 잡아, 소제목+본문 반복 같은 조판/추출 오탐을 배제한다.
+const DUP_REDUP_OK = new Set(['하나', '가지', '구석', '차례', '조각', '군데', '사이', '고비', '마디', '틈틈', '방울', '송이', '겹겹', '나날']);
+function detectDupWord(text) {
+  const issues = [];
+  const re = /([가-힣]{2,4})\1(?=[을를이가은는에도])/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const word = m[1], dup = m[0];
+    if (dup.includes('\x01')) { continue; }
+    if (DUP_REDUP_OK.has(word)) { continue; } // 하나하나·구석구석 등 정당한 첩어 제외
+    const pos = m.index;
+    issues.push({
+      ruleId: -12,
+      category: 'spelling',
+      categoryName: '중복 어절',
+      position: pos,
+      original: dup,
+      suggestion: word,
+      confidence: 0.75,
+      contextBefore: text.substring(Math.max(0, pos - 12), pos).replace(/\x01/g, ''),
+      contextAfter:  text.substring(pos + dup.length, pos + dup.length + 12).replace(/\x01/g, ''),
+      selected: true,
+      description: `중복된 어절 (${word}${word}→${word})`,
+    });
+  }
+  return issues;
+}
+
 // ========== 기간 '간' 붙여쓰기 검출 ==========
 // 숫자+시간단위 뒤의 '간'은 기간을 뜻하는 접미사 → 붙여 쓴다(10년간, 이틀간).
 // 의존명사 '간'(사람 간, 국가 간)과 구분하기 위해 '숫자+시간단위'가 앞설 때로 한정한다.
@@ -4434,6 +4537,12 @@ analyzeBtn.addEventListener('click', async () => {
     if (document.getElementById('templateLeftoverToggle').checked) {
       sectionIssues.push(...detectTemplateLeftover(parsed.originalText));
     }
+    if (document.getElementById('dupWordToggle').checked) {
+      sectionIssues.push(...detectDupWord(parsed.originalText));
+    }
+    if (document.getElementById('styleMixToggle').checked) {
+      sectionIssues.push(...detectStyleMix(parsed.originalText));
+    }
     if (document.getElementById('trailingSpaceToggle').checked) {
       sectionIssues.push(...detectTrailingSpace(parsed));
     }
@@ -4511,7 +4620,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)', '-99': 'AI 심층 검수' };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)', '-11': '문체 혼용 (자동)', '-12': '중복 어절 (자동)', '-99': 'AI 심층 검수' };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -5316,6 +5425,12 @@ document.getElementById('undoBtn').addEventListener('click', () => {
       }
       if (document.getElementById('templateLeftoverToggle').checked) {
         sIssues.push(...detectTemplateLeftover(a.originalText));
+      }
+      if (document.getElementById('dupWordToggle').checked) {
+        sIssues.push(...detectDupWord(a.originalText));
+      }
+      if (document.getElementById('styleMixToggle').checked) {
+        sIssues.push(...detectStyleMix(a.originalText));
       }
       if (document.getElementById('trailingSpaceToggle').checked) {
         sIssues.push(...detectTrailingSpace(a));
@@ -7668,6 +7783,8 @@ function pdfDetectAll() {
   const useParticle = document.getElementById('pdfUseParticle').checked;
   const useColon    = document.getElementById('pdfUseColon').checked;
   const useConsist  = document.getElementById('pdfUseConsistency')?.checked;
+  const useDupWord  = document.getElementById('pdfUseDupWord')?.checked;
+  const useStyleMix = document.getElementById('pdfUseStyleMix')?.checked;
   const all = [];
 
   // 표기 일관성: 문서 전체 빈도 대조가 선행돼야 하므로 페이지 루프 밖에서 1회 실행
@@ -7688,6 +7805,8 @@ function pdfDetectAll() {
     if (useParticle) raw = raw.concat(detectParticleSpacing(maskedText));
     if (useJamo)     raw = raw.concat(detectJamoSeparation(page.text)); // 자모는 원문 사용
     if (useColon)    raw = raw.concat(detectColonSpacing(maskedText));
+    if (useDupWord)  raw = raw.concat(detectDupWord(maskedText));
+    if (useStyleMix) raw = raw.concat(detectStyleMix(maskedText));
 
     // 마스킹된 영역(\x00)에 걸쳐있는 이슈 제거 + 원문 텍스트로 original 복원
     raw = raw.filter(issue => {
