@@ -3639,16 +3639,33 @@ function eqLint(script) {
   for (const m of s.matchAll(/[\^_]\{\s*\}/g))
     push('emptyScript', '빈 첨자 그룹 — 첨자 내용이 없습니다', m[0]);
 
+  // 이어지는 첨자 체인 (^{…}, _{…}, ^2 같은 무중괄호 포함) — 쉼표 이동 목적지 계산용
+  const SCRIPT_CHAIN = /^(?:\s*[\^_](?:\{[^{}]*\}|[A-Za-z0-9]+))+/;
+
   // 5) 첨자 그룹이 쉼표로 끝남: x_{i,} → x_{i}, (쉼표가 첨자에 잘못 포함된 전형 사례.
   //    다원 첨자 _{i,j}의 중간 쉼표는 정상 — 끝 쉼표만 잡는다)
+  //    sum_{i=1,}^{N}처럼 첨자가 더 이어지면 쉼표를 체인 전체 뒤로 옮긴다
+  //    (그룹 바로 뒤로만 옮기면 },^{ — 첨자 사이에 낀 쉼표가 새로 생긴다)
   for (const m of s.matchAll(/([\^_])\{([^{}]*?),\s*\}/g)) {
-    const fixedFrag = `${m[1]}{${m[2]}},`;
+    const chain = (s.slice(m.index + m[0].length).match(SCRIPT_CHAIN) || [''])[0];
+    const fixedFrag = `${m[1]}{${m[2]}}` + chain + ',';
     push('scriptComma', '첨자 그룹이 쉼표로 끝남 — 쉼표는 첨자 밖이 맞을 가능성이 높습니다',
-      m[0], fixedFrag,
-      s.slice(0, m.index) + fixedFrag + s.slice(m.index + m[0].length));
+      m[0] + chain, fixedFrag,
+      s.slice(0, m.index) + fixedFrag + s.slice(m.index + m[0].length + chain.length));
   }
 
-  // 6) 첨자 그룹 안 소괄호 불균형: ^{2)} _{(i} — 괄호가 첨자에 잘못 포함/누락 (검토 전용)
+  // 6) 첨자 사이에 낀 쉼표: sum_{i=1},^{N} — 아래·윗첨자 사이에 쉼표가 끼면
+  //    두 번째 첨자가 엉뚱한 대상에 붙는다 → 쉼표를 첨자 체인 뒤로
+  for (const m of s.matchAll(/\}\s*,(?=\s*[\^_])/g)) {
+    const chain = (s.slice(m.index + m[0].length).match(SCRIPT_CHAIN) || [''])[0];
+    if (!chain) continue; // 체인 형태가 아니면 (예: '},^' 뒤 비정형) 보수적으로 통과
+    const fixedFrag = '}' + chain + ',';
+    push('commaBetweenScripts', '첨자 사이에 낀 쉼표 — 쉼표는 첨자 뒤가 맞을 가능성이 높습니다',
+      m[0] + chain, fixedFrag,
+      s.slice(0, m.index) + fixedFrag + s.slice(m.index + m[0].length + chain.length));
+  }
+
+  // 7) 첨자 그룹 안 소괄호 불균형: ^{2)} _{(i} — 괄호가 첨자에 잘못 포함/누락 (검토 전용)
   for (const m of s.matchAll(/[\^_]\{([^{}]*)\}/g)) {
     const inner = m[1];
     if ((inner.match(/\(/g) || []).length !== (inner.match(/\)/g) || []).length)
