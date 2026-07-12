@@ -34,9 +34,104 @@ const blockInject = slice('// 프리셋 규칙 주입', 'function saveRules');
 const blockDetect = slice('const CHO  =', 'function applyCorrection');
 // AI 심층 검수: 프롬프트 + JSON 파서 + Claude 호출 (공용 모듈 스크립트에서)
 const blockAi = sliceOf(srcAi, 'const AI_PROOFREAD_PROMPT', '// HWPX 교정(script 3)');
+// 문제집 검수: 공통 파서 + examAnalyze + 정답 분포 + 표/CSV 내보내기 (소스 독립부만)
+const blockExam = sliceOf(srcAi, '// ── 문제집 검수 공통 파서', '// ── (B-HWPX) 문제집 검수 HWPX 어댑터');
+// HWPX 어댑터에서 소스 독립인 splitQuestionsHwpx만 추가 ("숫자. 지문" 문단 형식 지원)
+const blockSplitQ = sliceOf(srcAi, 'function splitQuestionsHwpx', '// 전체 섹션에서 문항 파싱');
 
 let commit = '(unknown)';
 try { commit = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim(); } catch (_) {}
+
+// 문제집 검수 세그먼트 어댑터 — 패널 입력(문단 배열)용. String.raw로 정규식 백슬래시 보존.
+const blockExamAdapter = String.raw`
+// 세그먼트(문단 배열) 어댑터 — parseExamQuestionsHwpx의 패널 판 (extract-engine.js가 부가)
+function examParseSegments(paragraphs, format) {
+  const starts = [];
+  let acc = 0;
+  for (const t of paragraphs) { starts.push(acc); acc += t.length + 1; }
+  const text = paragraphs.join('\n');
+  const posToPara = pos => {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= pos) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+
+  // 회차 헤더는 짧은 문단(<=40자)에서만 인정 — 본문 참조 문구("1회 12번 참고") 오탐 방지
+  const roundMarks = [];
+  paragraphs.forEach((t, i) => {
+    const compact = t.replace(/\s/g, '');
+    if (!compact || compact.length > 40) return;
+    for (const pat of EXAM_ROUND_PATTERNS) {
+      const m = compact.match(pat);
+      if (m) { roundMarks.push({ pos: starts[i], round: m[0] }); break; }
+    }
+  });
+  const roundAt = pos => {
+    let r = '(회차 미상)';
+    for (const rm of roundMarks) { if (rm.pos <= pos) r = rm.round; else break; }
+    return r;
+  };
+
+  const footerAnswers = {}, footerByRound = {};
+  if (format === 'footer') {
+    const fre = new RegExp('(\\d{1,3})\\s*[.·]\\s*(' + EXAM_CIRCLED_CLASS + ')', 'g');
+    let fm;
+    while ((fm = fre.exec(text)) !== null) {
+      const num = parseInt(fm[1], 10), ans = circledToInt(fm[2]);
+      footerAnswers[num] = ans;
+      const r = roundAt(fm.index);
+      (footerByRound[r] = footerByRound[r] || {})[num] = ans;
+    }
+  }
+
+  const circledRe = new RegExp(EXAM_CIRCLED_CLASS, 'g');
+  const ansRe = new RegExp('답\\s*[:：]\\s*(' + EXAM_CIRCLED_CLASS + ')');
+  const ansStripRe = new RegExp('답\\s*[:：]\\s*' + EXAM_CIRCLED_CLASS, 'g');
+  const footerPairRe = new RegExp('\\d{1,3}\\s*[.·]\\s*' + EXAM_CIRCLED_CLASS, 'g');
+
+  const questions = [];
+  for (const q of splitQuestionsHwpx(text)) {
+    let optBody = q.body.replace(ansStripRe, '');
+    if (format === 'footer') optBody = optBody.replace(footerPairRe, '');
+    const optChars = optBody.match(circledRe) || [];
+    if (optChars.length < 2) continue; // 번호 오분할 조각 제외
+    const optSet = [...new Set(optChars.map(circledToInt))].sort((a, b) => a - b);
+    const am = q.body.match(ansRe);
+    const firstOpt = q.body.search(circledRe);
+    const head = firstOpt >= 0 ? q.body.slice(0, firstOpt) : q.body.slice(0, 120);
+    const para = posToPara(q.numPos);
+    questions.push({
+      num: q.num,
+      pageNo: '문단 ' + (para + 1),          // 표시용 위치
+      para, off: q.numPos - starts[para],    // goto용 세그먼트 좌표
+      round: roundAt(q.numPos),
+      numPos: q.numPos, bodyStart: q.bodyStart,
+      nOptions: optSet.length, optionsSeen: optSet,
+      inlineAnswer: am ? circledToInt(am[1]) : null,
+      hasNote: q.body.includes('오답노트'),
+      hasPoint: q.body.includes('접근 Point') || q.body.replace(/\s/g, '').includes('접근Point'),
+      negative: isNegativeQuestion(head),
+    });
+  }
+  return { questions, footerAnswers, footerByRound };
+}
+
+// 정합성 검수 — findings에 goto용 (para, off) 좌표를 부여해 반환
+function examCheck(paragraphs, format) {
+  const { questions, footerAnswers, footerByRound } = examParseSegments(paragraphs, format);
+  const report = examAnalyze(questions, footerAnswers, format, footerByRound);
+  for (const f of report.findings) {
+    const q = questions.find(x => x.numPos === f.numPos);
+    if (q) { f.para = q.para; f.off = q.off; }
+  }
+  return report;
+}
+
+function answerStats(paragraphs, format) {
+  const { questions, footerByRound } = examParseSegments(paragraphs, format);
+  return answerStatsAnalyze(questions, footerByRound, format);
+}
+`;
 
 const out = `// ⚠ 자동 생성 파일 — 직접 수정 금지.
 // 생성: hwpx-proofreader 저장소에서 node tools/extract-engine.js
@@ -58,6 +153,10 @@ ${blockInject}
 ${blockDetect}
 // ═══ [3.5] AI 심층 검수 — 프롬프트·파서·Claude 호출 (index.html에서 추출) ═══
 ${blockAi}
+// ═══ [3.7] 문제집 검수 — 파서·분석·표 내보내기 (index.html에서 추출) ═══
+${blockExam}
+${blockSplitQ}
+${blockExamAdapter}
 // ═══ [4] 엔진 공개 API (extract-engine.js가 부가) ═══
 
 injectRulesFromPresets(PRESETS); // state.rules ← 내장 규칙 전체
@@ -243,6 +342,11 @@ return {
     { id: 'claude-haiku-4-5-20251001', label: 'Haiku (빠름·저렴)' },
     { id: 'claude-sonnet-4-6', label: 'Sonnet (정확)' },
   ],
+  // 문제집 검수
+  examCheck,
+  answerStats,
+  answerStatsTable,
+  answerStatsCSV,
 };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = HwpxEngine;
