@@ -136,6 +136,7 @@ return {
   detectIssuesInText,
   ruleCount: () => state.rules.length,
   RULESET_VERSION,
+  ENGINE_ORIGIN: '${commit}',   // 생성 시점의 index.html 커밋 (패널 버전 표시용)
   CAT_NAMES,
 };
 })();
