@@ -1,4 +1,4 @@
-// 문제집 검수 (exam_check · answer_stats) 회귀 테스트 — PDF·HWPX 공용 파서/분석부
+// 문제집 검수 (exam_check · answer_stats) 회귀 테스트 — HWPX 파서/분석부
 // 실행: node tests/exam_test.js  (index.html에서 해당 스크립트 구간을 추출해 검증)
 const fs = require('fs');
 const path = require('path');
@@ -10,22 +10,19 @@ if (!src) { console.error('index.html에서 문제집 검수 구간을 찾지 �
 
 const start = src.indexOf('// NBSP·전각공백을 일반 공백으로');
 const parserStart = src.indexOf('// ── 문제집 검수 공통 파서');
-const end = src.indexOf('// ── (C) 목차 쪽수 검증');
+const end = src.indexOf('// ── 문제집 검수 결과 렌더');
 if (start < 0 || parserStart < 0 || end < 0) { console.error('추출 마커를 찾지 못했습니다', start, parserStart, end); process.exit(1); }
 
 // lexNormalize 정의 + 파서~HWPX 어댑터 구간만 평가 (DOM 의존부는 스텁)
-const lexNormSlice = src.slice(start, src.indexOf('// term의 모든 출현 오프셋'));
+const lexNormSlice = src.slice(start, parserStart);
 const examSlice = src.slice(parserStart, end);
 
-global.window = global; // hwpxExamState가 window에 노출되므로 (PDF 모듈 IIFE 밖 접근용)
+global.window = global; // hwpxExamState가 window에 노출되므로 (공용 모듈 IIFE 밖 접근용)
 global.state = { sectionFiles: {}, sectionAnalysis: {} };
-global.pdfState = { pages: [], issues: [] };
 global.extractTextFromSection = () => { throw new Error('sectionAnalysis가 제공되면 호출되지 않아야 함'); };
-global.mapCharRangeToWords = () => [0];
-global.PDF_CAT_NAME = { exam: '문제집 검수' };
 
 eval(lexNormSlice + '\n' + examSlice
-  + '\n; global._t = { splitQuestionsHwpx, parseExamQuestionsHwpx, runExamCheckHwpx, runAnswerStatsHwpx, examAnalyze, answerStatsAnalyze, hwpxExamState, runExamCheck, runAnswerStats, answerStatsTable, answerStatsCSV };');
+  + '\n; global._t = { splitQuestionsHwpx, parseExamQuestionsHwpx, runExamCheckHwpx, runAnswerStatsHwpx, examAnalyze, answerStatsAnalyze, hwpxExamState, answerStatsTable, answerStatsCSV };');
 const T = global._t;
 
 // ── 합성 섹션 빌더: 문단 배열 → originalText(\x01 구분) + paragraphs ──
@@ -177,37 +174,6 @@ setDoc([
 const rep10 = await T.runExamCheckHwpx('inline');
 check('10-탭 구분 문항 3개 파싱', rep10.nQ === 3, rep10.nQ);
 check('10-인라인 정답 3개', rep10.nInline === 3, rep10.nInline);
-
-// ══════════════ PDF 경로 ══════════════
-
-const PQ = (n, ans) => [String(n), '다음 중 옳은 것은?', '① 가', '② 나', '③ 다', '④ 라', '답: ' + '①②③④⑤'[ans - 1], '오답노트 설명', '접근 Point 설명'].join('\n');
-
-// ── 시나리오 P1: 기본 인라인 ──
-global.pdfState = { issues: [], pages: [
-  { index: 0, text: '기출변형 1회\n' + PQ(1, 2) + '\n' + PQ(2, 4), word_spans: [] },
-  { index: 1, text: PQ(3, 1) + '\n' + PQ(4, 3), word_spans: [] },
-] };
-let prep = await T.runExamCheck('inline');
-check('P1-기본: 4문항·이상 없음', prep.nQ === 4 && prep.findings.length === 0, prep);
-let pst = await T.runAnswerStats('inline');
-check('P1-통계: 4문항 1회차', pst.totalAll === 4 && Object.keys(pst.rounds).length === 1, pst && pst.rounds);
-check('P1-pdfState 연동', pdfState.examReport === prep && pdfState.answerStats === pst);
-
-// ── 시나리오 P2 (버그 회귀): 회차별 footer 충돌 ──
-global.pdfState = { issues: [], pages: [
-  { index: 0, text: '기출변형 1회\n' + PQ(1, 2) + '\n정답 1.②', word_spans: [] },
-  { index: 1, text: '기출변형 2회\n' + PQ(1, 4) + '\n정답 1.④', word_spans: [] },
-] };
-prep = await T.runExamCheck('footer');
-check('P2-회차별 footer 교차 오탐 없음', !prep.findings.some(f => f.kind === '정답 교차 불일치'), prep.findings);
-check('P2-분포 정확', prep.distribution[2] === 1 && prep.distribution[4] === 1, prep.distribution);
-
-// ── 시나리오 P3 (버그 회귀): 해설 재진술 '정답: ⑤' ──
-global.pdfState = { issues: [], pages: [
-  { index: 0, text: [PQ(1, 5), '따라서 정답: ⑤가 맞다', PQ(2, 1), PQ(3, 2)].join('\n'), word_spans: [] },
-] };
-prep = await T.runExamCheck('inline');
-check('P3-재진술 오염 무시하고 불일치 검출', prep.findings.some(f => f.kind === '정답-보기 불일치' && f.question === 1), prep.findings);
 
 // ══════════════ 표 내보내기 (answerStatsTable · answerStatsCSV) ══════════════
 

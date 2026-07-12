@@ -7,12 +7,12 @@ description: 이 저장소(단일 index.html 웹앱)의 변경을 실기동으�
 
 ## 핵심 함정 (반드시 알 것)
 
-- **index.html에는 인라인 스크립트가 2개**: script 3(~2412행, HWPX 코어 — `state`, `handleFile`, 규칙 엔진)과 script 4(~5707행, **전체가 IIFE로 감싸인 PDF 모듈** — `pdfState`, 문제집 검수, 렌더러). script 4 내부 선언은 전역이 아니다. 두 스크립트가 공유해야 하는 상태는 `window.*`에 명시적으로 노출해야 하며(예: `window.hwpxExamState`), script 3 쪽 참조는 PDF 모듈이 죽어도 살아남게 `if (window.X)` 가드를 건다.
+- **index.html에는 인라인 스크립트가 2개**: script A(HWPX 코어 — `state`, `handleFile`, 규칙 엔진)와 script B(파일 하단, **전체가 IIFE로 감싸인 공용 모듈** — AI 호출 `window.hwpxAiCall`, 문제집 검수 `window.hwpxExamState`). script B 내부 선언은 전역이 아니다. 두 스크립트가 공유해야 하는 상태는 `window.*`에 명시적으로 노출해야 하며, script A 쪽 참조는 모듈이 죽어도 살아남게 `if (window.X)` 가드를 건다. (PDF 교정 모드는 2026-07-12 제거됨)
 - node로 스크립트 구간을 eval하는 단위 테스트(`tests/exam_test.js`)는 전역 스코프라 **이 스코프 문제를 못 잡는다**. 스코프를 넘나드는 변경은 반드시 브라우저 실기동으로 확인.
 
 ## 빌드/실행
 
-정적 페이지라 빌드 없음. CDN(jszip·pdf.js·pdf-lib) 로드가 필요하므로 인터넷 연결 필요.
+정적 페이지라 빌드 없음. CDN(jszip) 로드가 필요하므로 인터넷 연결 필요.
 
 ```bash
 # 저장소 루트에서
