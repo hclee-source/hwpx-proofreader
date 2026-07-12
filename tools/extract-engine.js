@@ -339,9 +339,12 @@ return {
   aiDetect,
   parseAiJson,
   aiCallClaude: (apiKey, model, text) => aiCallClaudeApi(apiKey, model, text),
+  aiCallOpenAi: (apiKey, model, text) => aiCallOpenAiApi(apiKey, model, text),
   AI_MODELS: [
-    { id: 'claude-haiku-4-5-20251001', label: 'Haiku (빠름·저렴)' },
-    { id: 'claude-sonnet-4-6', label: 'Sonnet (정확)' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (빠름·저렴)', provider: 'anthropic' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet (정확)', provider: 'anthropic' },
+    { id: 'gpt-5-mini', label: 'GPT-5 mini (빠름·저렴)', provider: 'openai' },
+    { id: 'gpt-5.1', label: 'GPT-5.1 (정확)', provider: 'openai' },
   ],
   // 문제집 검수
   examCheck,

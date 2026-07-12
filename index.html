@@ -6201,9 +6201,37 @@ async function aiCallClaudeApi(apiKey, model, text) {
   return parseAiJson(rawText);
 }
 
+// OpenAI(ChatGPT) — 같은 프롬프트·파서, 호출 형식만 다름. GPT-5 계열은
+// max_tokens 대신 max_completion_tokens를 요구하고 추론 토큰도 이 한도에서
+// 소모하므로 Claude(1500)보다 넉넉히 잡는다.
+async function aiCallOpenAiApi(apiKey, model, text) {
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'authorization': 'Bearer ' + apiKey,
+    },
+    body: JSON.stringify({
+      model,
+      max_completion_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: AI_PROOFREAD_PROMPT + text.slice(0, 3000),
+      }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `OpenAI API 오류 ${resp.status}`);
+  }
+  const data = await resp.json();
+  return parseAiJson(data.choices?.[0]?.message?.content || '[]');
+}
+
 // HWPX 교정(script 3)에서도 같은 AI 호출·프롬프트를 쓰도록 window로 노출.
 // (script 4는 IIFE라 내부 선언이 전역이 아니므로 명시적으로 공유한다)
-window.hwpxAiCall = { claude: aiCallClaudeApi };
+window.hwpxAiCall = { claude: aiCallClaudeApi, openai: aiCallOpenAiApi };
 
 // ════════════════════════════════════════════════════════
 // 문제집 검수 모듈 (pdf-proofreader 스킬 이식 — HWPX)
