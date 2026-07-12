@@ -1,7 +1,7 @@
-// 검출 엔진 추출기 — index.html의 규칙 데이터·검출기를 확장용 engine.js로 생성
+// 검출 엔진 추출기 — index.html의 규칙 데이터·검출기를 hwp-bridge 패널용 engine.js로 생성
 //
 // 사용: node tools/extract-engine.js [출력경로]
-//   기본 출력: ../hwp-bridge/extension/engine.js
+//   기본 출력: ../hwp-bridge/panel/engine.js
 //
 // index.html이 단일 파일 원칙의 정본이고, engine.js는 여기서 생성되는 산출물이다.
 // index.html의 규칙·검출기를 수정했다면 이 스크립트를 다시 실행해 동기화한다.
@@ -11,7 +11,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const outPath = process.argv[2] || path.join(ROOT, '..', 'hwp-bridge', 'extension', 'engine.js');
+const outPath = process.argv[2] || path.join(ROOT, '..', 'hwp-bridge', 'panel', 'engine.js');
 
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
