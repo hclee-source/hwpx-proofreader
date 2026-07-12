@@ -3601,6 +3601,63 @@ function detectIssuesInText(text) {
   return issues;
 }
 
+// ========== 수식 스크립트 린트 ==========
+// 한글 수식 편집기 스크립트를 검사한다 — hwp-bridge가 eqed 컨트롤에서 읽은 String,
+// hwpx의 hp:script도 동일 문법. 값이 틀린 의미 오류는 못 잡고(AI 검수 몫),
+// 구조 오류(괄호 짝·첨자 그룹 오염)만 보수적으로 잡는다.
+// 반환: [{kind, message, original, fixed, suggestion}]
+//   original/fixed: 표시용 발췌(fixed는 자동 수정 가능할 때만),
+//   suggestion: 전체 교정 스크립트(자동 수정 가능할 때만 — 아니면 null=검토 전용)
+function eqLint(script) {
+  const s = String(script || '');
+  const issues = [];
+  const push = (kind, message, original, fixed, suggestion) =>
+    issues.push({ kind, message, original, fixed: fixed || null, suggestion: suggestion || null });
+
+  // 1) 중괄호 짝 — 개수 불일치 또는 여는 것보다 닫는 게 먼저 나옴
+  let depth = 0, minDepth = 0;
+  for (const ch of s) {
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth < minDepth) minDepth = depth; }
+  }
+  if (depth !== 0 || minDepth < 0) {
+    const nO = (s.match(/\{/g) || []).length, nC = (s.match(/\}/g) || []).length;
+    push('brace', `중괄호 짝 불일치 — { ${nO}개 / } ${nC}개`, s.slice(0, 60));
+  }
+
+  // 2) 소괄호 짝 (left( / right) 도 결국 ( ) 문자를 세면 함께 잡힌다)
+  const nOp = (s.match(/\(/g) || []).length, nCl = (s.match(/\)/g) || []).length;
+  if (nOp !== nCl)
+    push('paren', `소괄호 짝 불일치 — ( ${nOp}개 / ) ${nCl}개`, s.slice(0, 60));
+
+  // 3) left/right 명령 짝 — 개수가 다르면 가변 괄호가 한쪽만 커진다
+  const nL = (s.match(/\bleft\b/g) || []).length, nR = (s.match(/\bright\b/g) || []).length;
+  if (nL !== nR)
+    push('leftright', `left/right 짝 불일치 — left ${nL}개 / right ${nR}개`, s.slice(0, 60));
+
+  // 4) 빈 첨자 그룹 ^{} _{}
+  for (const m of s.matchAll(/[\^_]\{\s*\}/g))
+    push('emptyScript', '빈 첨자 그룹 — 첨자 내용이 없습니다', m[0]);
+
+  // 5) 첨자 그룹이 쉼표로 끝남: x_{i,} → x_{i}, (쉼표가 첨자에 잘못 포함된 전형 사례.
+  //    다원 첨자 _{i,j}의 중간 쉼표는 정상 — 끝 쉼표만 잡는다)
+  for (const m of s.matchAll(/([\^_])\{([^{}]*?),\s*\}/g)) {
+    const fixedFrag = `${m[1]}{${m[2]}},`;
+    push('scriptComma', '첨자 그룹이 쉼표로 끝남 — 쉼표는 첨자 밖이 맞을 가능성이 높습니다',
+      m[0], fixedFrag,
+      s.slice(0, m.index) + fixedFrag + s.slice(m.index + m[0].length));
+  }
+
+  // 6) 첨자 그룹 안 소괄호 불균형: ^{2)} _{(i} — 괄호가 첨자에 잘못 포함/누락 (검토 전용)
+  for (const m of s.matchAll(/[\^_]\{([^{}]*)\}/g)) {
+    const inner = m[1];
+    if ((inner.match(/\(/g) || []).length !== (inner.match(/\)/g) || []).length)
+      push('scriptParen', '첨자 그룹 안 소괄호 불균형 — 괄호가 첨자에 잘못 들어갔을 수 있습니다', m[0]);
+  }
+
+  return issues;
+}
+
 // ========== 교정 적용 (다중 hp:t 지원) ==========
 // 교정 위치(globalPos)가 여러 hp:t에 걸쳐 있어도 올바르게 DOM 반영
 // 범위가 겹치는 검출 이슈 제거 — 같은 구간에 두 규칙이 매칭되면(예: '에 있어서는'과 '에 있어서')

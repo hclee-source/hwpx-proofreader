@@ -330,6 +330,7 @@ async function aiDetect(paragraphs, opts, callFn, onProgress) {
 return {
   detectAll,
   detectIssuesInText,
+  eqLint,           // 수식 스크립트 린트 — 브리지 /equations의 script 검사용
   ruleCount: () => state.rules.length,
   RULESET_VERSION,
   ENGINE_ORIGIN: '${commit}',   // 생성 시점의 index.html 커밋 (패널 버전 표시용)
