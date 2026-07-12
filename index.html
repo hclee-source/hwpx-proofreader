@@ -3675,7 +3675,58 @@ function eqLint(script) {
       push('scriptParen', '첨자 그룹 안 소괄호 불균형 — 괄호가 첨자에 잘못 들어갔을 수 있습니다', m[0]);
   }
 
+  // 8) 산술 검산 (검토 전용): '=' 체인에서 이웃한 두 구간이 모두 숫자 식으로
+  //    평가되면 값을 대조한다. 문자·생략기호(cdots)·첨자(^)·나열 쉼표가 섞인
+  //    구간은 평가 불가로 조용히 건너뛰므로 오탐이 아니라 미검출로 수렴한다.
+  //    실사례: 'Cov = {1} over {5} (195+0+225+35+40) = {525} over {5} = 105'
+  //    — 합이 495라 앞 구간은 99인데 뒤는 105 (원고에서 발견된 실제 오류).
+  {
+    const sections = s.split('=');
+    let prev = null; // {value, text}
+    for (const sec of sections) {
+      const v = eqEvalNumeric(sec);
+      if (v !== null && prev !== null && !eqNumbersConsistent(prev.value, v, sec)) {
+        push('arith', `산술 검산 불일치 — '${prev.text.trim().slice(0, 30)}' = ${eqFmtNum(prev.value)} 인데 `
+          + `'${sec.trim().slice(0, 30)}' = ${eqFmtNum(v)}`, (prev.text + '=' + sec).trim().slice(0, 60));
+      }
+      prev = v === null ? null : { value: v, text: sec };
+    }
+  }
+
   return issues;
+}
+
+// 수식 스크립트의 한 구간을 숫자로 평가 — 불가하면 null (보수적: 확신 없으면 침묵)
+function eqEvalNumeric(sec) {
+  let t = String(sec);
+  if (/cdots|ldots|\^|%|_/i.test(t)) return null;   // 생략기호·첨자·백분율은 평가 불가
+  t = t.replace(/`/g, ' ');                          // 백틱은 한글 수식의 공백 문자
+  t = t.replace(/\bLEFT\b|\bRIGHT\b/gi, ' ');        // 가변 괄호 명령
+  t = t.replace(/\btimes\b|\bcdot\b/gi, '*');        // 곱셈 기호
+  t = t.replace(/(\d),(?=\d{3}(\D|$))/g, '$1');      // 자릿수 쉼표만 제거 (12,000 → 12000)
+  t = t.replace(/[{}]/g, m => (m === '{' ? '(' : ')'));
+  t = t.replace(/\bover\b/gi, '/');
+  if (/[^0-9+\-*/(). \t]/.test(t)) return null;      // 문자·나열 쉼표 등이 남으면 포기
+  // 인접 곱: ')(', ') (', '2(' , ')3' → 명시적 *
+  t = t.replace(/\)\s*\(/g, ')*(').replace(/(\d)\s*\(/g, '$1*(').replace(/\)\s*(\d)/g, ')*$1');
+  if (!/\d/.test(t) || !t.trim()) return null;
+  try {
+    const v = Function('"use strict";return (' + t + ')')();
+    return (typeof v === 'number' && isFinite(v)) ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// 두 값의 일치 판정 — 뒤 구간(b)이 반올림된 리터럴일 수 있어 그 소수 자릿수만큼 허용
+function eqNumbersConsistent(a, b, bText) {
+  const decs = (String(bText).match(/\d+\.(\d+)/g) || []).map(x => x.split('.')[1].length);
+  const tol = 0.51 * Math.pow(10, -(decs.length ? Math.max(...decs) : 0));
+  return Math.abs(a - b) <= Math.max(tol, Math.abs(b) * 1e-9);
+}
+
+function eqFmtNum(v) {
+  return Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : String(+v.toFixed(6));
 }
 
 // ========== 교정 적용 (다중 hp:t 지원) ==========
