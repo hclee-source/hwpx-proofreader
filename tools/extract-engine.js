@@ -16,20 +16,24 @@ const outPath = process.argv[2] || path.join(ROOT, '..', 'hwp-bridge', 'panel', 
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 const src = scripts.find(s => s.includes('CURATED_CATEGORIES'));
-if (!src) { console.error('index.html에서 규칙 구간을 찾지 못했습니다'); process.exit(1); }
+const srcAi = scripts.find(s => s.includes('AI_PROOFREAD_PROMPT'));
+if (!src || !srcAi) { console.error('index.html에서 규칙/AI 구간을 찾지 못했습니다'); process.exit(1); }
 
-function slice(startMarker, endMarker) {
-  const s = src.indexOf(startMarker), e = src.indexOf(endMarker);
+function sliceOf(text, startMarker, endMarker) {
+  const s = text.indexOf(startMarker), e = text.indexOf(endMarker);
   if (s < 0 || e < 0 || e <= s) {
     console.error('추출 마커 실패:', JSON.stringify(startMarker), s, JSON.stringify(endMarker), e);
     process.exit(1);
   }
-  return src.slice(s, e);
+  return text.slice(s, e);
 }
+const slice = (a, b) => sliceOf(src, a, b);
 
 const blockRules  = slice('const RULESET_VERSION', '// ========== 상태 관리');
 const blockInject = slice('// 프리셋 규칙 주입', 'function saveRules');
 const blockDetect = slice('const CHO  =', 'function applyCorrection');
+// AI 심층 검수: 프롬프트 + JSON 파서 + Claude 호출 (공용 모듈 스크립트에서)
+const blockAi = sliceOf(srcAi, 'const AI_PROOFREAD_PROMPT', '// HWPX 교정(script 3)');
 
 let commit = '(unknown)';
 try { commit = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim(); } catch (_) {}
@@ -52,6 +56,8 @@ ${blockRules}
 ${blockInject}
 // ═══ [3] 검출기 (index.html에서 추출) ═══
 ${blockDetect}
+// ═══ [3.5] AI 심층 검수 — 프롬프트·파서·Claude 호출 (index.html에서 추출) ═══
+${blockAi}
 // ═══ [4] 엔진 공개 API (extract-engine.js가 부가) ═══
 
 injectRulesFromPresets(PRESETS); // state.rules ← 내장 규칙 전체
@@ -131,6 +137,97 @@ function detectAll(paragraphs, opts) {
   return deduped;
 }
 
+// ── AI 심층 검수 오케스트레이터 (extract-engine.js가 부가) ──
+// callFn(text) → Promise<[{original,suggestion,category,confidence,reason}]>
+// 실사용은 t => aiCallClaudeApi(key, model, t), 테스트는 가짜 함수 주입.
+const AI_CAT_NAMES = {
+  spelling: 'AI·맞춤법', spacing: 'AI·띄어쓰기', punct: 'AI·문장부호',
+  style: 'AI·비문/문장', terminology: 'AI·용어', content: 'AI·사실/계산', template: 'AI·템플릿',
+};
+
+async function aiDetect(paragraphs, opts, callFn, onProgress) {
+  opts = opts || {};
+  const ratio = opts.ratio !== undefined ? opts.ratio : 0.7;
+  const CHUNK = 2200;
+
+  // 세그먼트(문단)를 문서 순서대로 ~CHUNK자 묶음으로 (세그먼트 경계 유지 = 좌표 보존)
+  const chunks = [];
+  let cur = null;
+  paragraphs.forEach((t, idx) => {
+    if (!cur || (cur.len > 0 && cur.len + t.length + 1 > CHUNK)) {
+      cur = { segs: [], len: 0 };
+      chunks.push(cur);
+    }
+    cur.segs.push(idx);
+    cur.len += t.length + 1;
+  });
+  const jobs = chunks.filter(c => c.segs.some(i => paragraphs[i].trim()));
+
+  const rawAll = [];
+  let failed = 0, done = 0, firstError = null;
+  const queue = jobs.slice();
+  async function worker() {
+    while (queue.length) {
+      const c = queue.shift();
+      try {
+        const corr = await callFn(c.segs.map(i => paragraphs[i]).join('\\n'));
+        for (const it of corr || []) rawAll.push({ c, it });
+      } catch (e) { failed++; if (!firstError) firstError = e; }
+      done++;
+      if (onProgress) onProgress(done, jobs.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, worker));
+  if (!rawAll.length && firstError) throw firstError;
+
+  // 신뢰도 상위 ratio만 채택 (웹 도구와 동일한 정책)
+  rawAll.sort((a, b) => (b.it.confidence ?? 0) - (a.it.confidence ?? 0));
+  const top = rawAll.slice(0, Math.max(1, Math.ceil(rawAll.length * ratio)));
+
+  // original을 해당 청크의 세그먼트 안에서 정확 일치 탐색 — 유일할 때만 채택 (오적용 방지)
+  const out = [];
+  const seen = new Set();
+  let dropped = 0;
+  for (const { c, it } of top) {
+    const orig = String(it.original || '');
+    if (!orig || it.suggestion === undefined || it.suggestion === null) { dropped++; continue; }
+    let hit = null, hits = 0;
+    for (const needle of [orig, orig.trim()].filter(Boolean)) {
+      hits = 0; hit = null;
+      for (const segIdx of c.segs) {
+        const t = paragraphs[segIdx];
+        let from = 0, i;
+        while ((i = t.indexOf(needle, from)) !== -1) {
+          hits++; hit = { para: segIdx, off: i, original: needle };
+          from = i + 1;
+        }
+      }
+      if (hits === 1) break;
+    }
+    if (hits !== 1 || hit.original === String(it.suggestion)) { dropped++; continue; }
+    const key = hit.para + ':' + hit.off + ':' + hit.original;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const t = paragraphs[hit.para];
+    out.push({
+      para: hit.para, off: hit.off,
+      ruleId: -99, category: it.category || 'custom',
+      categoryName: AI_CAT_NAMES[it.category] || 'AI 검수',
+      original: hit.original,
+      suggestion: String(it.suggestion),
+      confidence: it.confidence ?? 0.5,
+      description: it.reason || '',
+      contextBefore: t.slice(Math.max(0, hit.off - 20), hit.off),
+      contextAfter: t.slice(hit.off + hit.original.length, hit.off + hit.original.length + 20),
+      selected: true,
+    });
+  }
+  out.sort((a, b) => a.para - b.para || a.off - b.off);
+  return { issues: out,
+           stats: { chunks: jobs.length, failed, considered: rawAll.length,
+                    adopted: top.length, dropped } };
+}
+
 return {
   detectAll,
   detectIssuesInText,
@@ -138,6 +235,14 @@ return {
   RULESET_VERSION,
   ENGINE_ORIGIN: '${commit}',   // 생성 시점의 index.html 커밋 (패널 버전 표시용)
   CAT_NAMES,
+  // AI 심층 검수
+  aiDetect,
+  parseAiJson,
+  aiCallClaude: (apiKey, model, text) => aiCallClaudeApi(apiKey, model, text),
+  AI_MODELS: [
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku (빠름·저렴)' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet (정확)' },
+  ],
 };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = HwpxEngine;
