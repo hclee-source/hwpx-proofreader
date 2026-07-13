@@ -45,7 +45,7 @@ ok(T.PRESETS.length === 8, '프리셋(카테고리) 8개', T.PRESETS.length);
 ok(totalRules === 6422, '규칙 총수 6,422개 (6,423 + 제한조건 통일 1 - 제약조건 구규칙 2)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 240, '문맥 가드 규칙 240개', guarded);
+ok(guarded === 244, '문맥 가드 규칙 244개', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');

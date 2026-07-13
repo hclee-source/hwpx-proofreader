@@ -277,6 +277,10 @@ async function aiDetect(paragraphs, opts, callFn, onProgress) {
   for (const { c, it } of top) {
     const orig = String(it.original || '');
     if (!orig || it.suggestion === undefined || it.suggestion === null) { dropped++; continue; }
+    // \\x01은 수식·개체 자리표시자 — 모델이 이를 '누락된 내용'으로 오인해 파괴적 제안을
+    // 만든 실사례(2026-07-13: "① \\x01…→① (수식 누락)"). 프롬프트로 금지하고도 새는
+    // 것은 여기서 하드 필터 (마커를 지우는 제안은 수식을 지우는 적용이 된다)
+    if (orig.includes('\\x01') || String(it.suggestion).includes('\\x01')) { dropped++; continue; }
     let hit = null, hits = 0;
     for (const needle of [orig, orig.trim()].filter(Boolean)) {
       hits = 0; hit = null;
