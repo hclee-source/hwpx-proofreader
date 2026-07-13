@@ -3638,9 +3638,23 @@ function eqLint(script) {
   if (nL !== nR)
     push('leftright', `left/right 짝 불일치 — left ${nL}개 / right ${nR}개`, s.slice(0, 60));
 
-  // 4) 빈 첨자 그룹 ^{} _{}
-  for (const m of s.matchAll(/[\^_]\{\s*\}/g))
+  // 4) 빈 첨자 그룹 ^{} _{} — 단, 큰 연산자(sum·prod·int·lim 등)의 빈 상하한은
+  //    한글 수식 편집기의 표준 관용(한계 없는 ∑를 'sum _{} ^{}'로 저장)이라 제외.
+  //    실원고 신고(2026-07-13): 정상 렌더링되는 ∑ 수식마다 검토 카드 2장씩 오탐.
+  const isBigOpEmptyLimit = (idx) => {
+    let j = idx;
+    for (;;) {  // 앞쪽의 공백·연쇄 첨자 그룹(sum _{i=1} ^{} 등)을 건너뛰고 기저 토큰 확인
+      while (j > 0 && /\s/.test(s[j - 1])) j--;
+      const g = s.slice(0, j).match(/[\^_](?:\{[^{}]*\}|[A-Za-z0-9]+)$/);
+      if (g) { j -= g[0].length; continue; }
+      break;
+    }
+    return /(?:^|[^A-Za-z])(?:sum|prod|oint|iint|iiint|int|lim|union|inter)$/i.test(s.slice(0, j));
+  };
+  for (const m of s.matchAll(/[\^_]\{\s*\}/g)) {
+    if (isBigOpEmptyLimit(m.index)) continue;
     push('emptyScript', '빈 첨자 그룹 — 첨자 내용이 없습니다', m[0]);
+  }
 
   // 이어지는 첨자 체인 (^{…}, _{…}, ^2 같은 무중괄호 포함) — 쉼표 이동 목적지 계산용
   const SCRIPT_CHAIN = /^(?:\s*[\^_](?:\{[^{}]*\}|[A-Za-z0-9]+))+/;
