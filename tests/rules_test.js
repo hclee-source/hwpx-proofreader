@@ -42,7 +42,7 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 8, '프리셋(카테고리) 8개', T.PRESETS.length);
-ok(totalRules === 6421, '규칙 총수 6,421개 (원본 6,424 - 제어문자 정제 중복 3)', totalRules);
+ok(totalRules === 6423, '규칙 총수 6,423개 (원본 6,424 - 제어문자 정제 중복 3 + 조사 변형 2)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
 ok(guarded === 240, '문맥 가드 규칙 240개', guarded);

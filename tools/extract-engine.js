@@ -192,6 +192,10 @@ function detectAll(paragraphs, opts) {
     const on = opts[d.key] !== undefined ? !!opts[d.key] : d.def;
     if (on) raw = raw.concat(d.fn(full));
   }
+  // 같은 구간에 겹친 매칭은 긴 것 하나만 — 웹 도구(index.html)와 동일 정책.
+  // 빠지면 '하기 위해서는'과 '하기 위해서'가 같은 자리에 겹쳐 카드가 2장 나오고,
+  // 짧은 쪽을 먼저 적용하면 '하려면는' 같은 잔여 조사 손상이 남는다 (실사용 신고).
+  raw = dedupeOverlappingIssues(raw);
 
   const out = [];
   for (const it of raw) {
@@ -216,24 +220,7 @@ function detectAll(paragraphs, opts) {
     });
   }
   out.sort((a, b) => a.para - b.para || a.off - b.off);
-
-  // 중첩 dedup — 규칙과 자동 검출기가 같은 자리를 잡는 경우(' 라고 '→'라고 ' vs ' 라고'→'라고')
-  // 적용 결과가 동일하면 하나만 남긴다 (원문이 짧은 쪽 = 더 국소적인 이슈 우선).
-  const applied = it => {
-    const t = paragraphs[it.para];
-    return t.slice(0, it.off) + it.suggestion + t.slice(it.off + it.original.length);
-  };
-  const deduped = [];
-  for (const it of out) {
-    const dupIdx = deduped.findIndex(prev =>
-      prev.para === it.para &&
-      prev.off < it.off + it.original.length &&
-      it.off < prev.off + prev.original.length &&
-      applied(prev) === applied(it));
-    if (dupIdx === -1) deduped.push(it);
-    else if (it.original.length < deduped[dupIdx].original.length) deduped[dupIdx] = it;
-  }
-  return deduped;
+  return out;
 }
 
 // ── AI 심층 검수 오케스트레이터 (extract-engine.js가 부가) ──
@@ -273,7 +260,7 @@ async function aiDetect(paragraphs, opts, callFn, onProgress) {
         for (const it of corr || []) rawAll.push({ c, it });
       } catch (e) { failed++; if (!firstError) firstError = e; }
       done++;
-      if (onProgress) onProgress(done, jobs.length);
+      if (onProgress) onProgress(done, jobs.length, rawAll.length, failed);
     }
   }
   await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, worker));
@@ -324,7 +311,10 @@ async function aiDetect(paragraphs, opts, callFn, onProgress) {
   out.sort((a, b) => a.para - b.para || a.off - b.off);
   return { issues: out,
            stats: { chunks: jobs.length, failed, considered: rawAll.length,
-                    adopted: top.length, dropped } };
+                    adopted: top.length, dropped,
+                    // 부분 실패의 첫 오류 — 채택 0건이 "오류 없음"인지 "호출 실패"인지
+                    // 패널이 구분해 보여줄 수 있게 한다
+                    firstErrorMsg: firstError ? String(firstError.message || firstError) : null } };
 }
 
 return {
