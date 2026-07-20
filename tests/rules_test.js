@@ -41,11 +41,11 @@ function ok(cond, name, detail) {
 // ── 1. 내장 규칙 수·구조 ──
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
-ok(T.PRESETS.length === 8, '프리셋(카테고리) 8개', T.PRESETS.length);
-ok(totalRules === 6419, '규칙 총수 6,419개 (6,422 - 이어 붙·만들어 주·읽어 보 삭제 3)', totalRules);
+ok(T.PRESETS.length === 10, '프리셋(카테고리) 10개 (큐레이션 8 + 사전 유래 2)', T.PRESETS.length);
+ok(totalRules === 14076, '규칙 총수 14,076개 (큐레이션 6,419 + 사전 유래 7,657)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 246, '문맥 가드 규칙 246개 (244 + 형 변환·한값 가드 2)', guarded);
+ok(guarded === 249, '문맥 가드 규칙 249개 (큐레이션 246 + 사전 3)', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
@@ -91,6 +91,27 @@ for (const [orig, dst, damaged, kept] of [
 // 보조용언을 붙이자는 낱말 전용 규칙 — 일반 '어 주/어 보' 가드로는 못 막는다(원문이 다름)
 for (const [o, d] of [['이어 붙', '이어붙'], ['만들어 주', '만들어주'], ['읽어 보', '읽어보']]) {
   ok(!findRule(o, d), `"${o}→${d}" 규칙 삭제됨`);
+}
+
+// 사전 유래(dict_*)와 큐레이션이 서로 반대로 교정하면 무한 핑퐁이 된다 —
+// '최빈값' 사고(2026-07-13)가 그 유형이었다. 두 규칙셋을 합칠 때 반드시 0이어야 한다.
+{
+  const dict = [], cur = [];
+  for (const p of T.PRESETS)
+    for (const r of p.rules) (p.id.includes('dict_') ? dict : cur).push(r);
+  ok(dict.length > 0, '사전 유래 규칙 이식됨', dict.length);
+  const curByOrig = new Map(cur.map(r => [r.original, r]));
+  const curRepl = new Set(cur.map(r => r.replacement));
+  const pingpong = dict.filter(d => {
+    const c = curByOrig.get(d.replacement);
+    return c && c.replacement === d.original;
+  });
+  ok(pingpong.length === 0, '사전↔큐레이션 정반대 교정 0건',
+    JSON.stringify(pingpong.slice(0, 5).map(d => d.original + '>' + d.replacement)));
+  // 큐레이션이 만들어 낸 결과를 사전이 다시 고치면 적용→재검출이 안 끝난다
+  const chain = dict.filter(d => curRepl.has(d.original));
+  ok(chain.length === 0, '사전이 큐레이션 교정 결과를 재교정 0건',
+    JSON.stringify(chain.slice(0, 5).map(d => d.original + '>' + d.replacement)));
 }
 
 // 다글자 가드 토큰 (리눅스·윈도우 등 3글자)
