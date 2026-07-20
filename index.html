@@ -6240,7 +6240,11 @@ async function aiCallClaudeApi(apiKey, model, text) {
 // 소모**한다 — 한도가 작으면 추론만 하다 본문 없이 끝난다(finish_reason=length,
 // 빈 content). 한도를 넉넉히 잡고 reasoning_effort를 낮춰 본문 예산을 확보한다.
 async function aiCallOpenAiApi(apiKey, model, text) {
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  // api.openai.com은 브라우저 직접 호출을 CORS로 막는다 — Anthropic의
+  // dangerous-direct-browser-access 같은 우회 수단이 OpenAI엔 없다("Failed to fetch"로
+  // 전 청크 실패). hwp-bridge 패널은 로컬 브리지의 중계 주소를 이 전역에 주입해 우회한다.
+  const endpoint = globalThis.HWPX_OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
+  const resp = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
