@@ -42,10 +42,10 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 8, '프리셋(카테고리) 8개', T.PRESETS.length);
-ok(totalRules === 6422, '규칙 총수 6,422개 (6,423 + 제한조건 통일 1 - 제약조건 구규칙 2)', totalRules);
+ok(totalRules === 6419, '규칙 총수 6,419개 (6,422 - 이어 붙·만들어 주·읽어 보 삭제 3)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 244, '문맥 가드 규칙 244개', guarded);
+ok(guarded === 246, '문맥 가드 규칙 246개 (244 + 형 변환·한값 가드 2)', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
@@ -73,6 +73,26 @@ if (geuJung) {
   ok(detectionsOf('그 중요한 사실을 놓쳤다', geuJung).length === 0, 'rejectAfter: "그 중요한" 오발동 차단');
   ok(detectionsOf('그 중에서 하나를 고른다', geuJung).length === 1, 'rejectAfter: 정상 문맥 "그 중에서"는 검출 유지');
 }
+// 실사용 신고 2026-07-20 — 긴 낱말 안쪽이 부분 매칭돼 멀쩡한 곳을 훼손하던 7건.
+// 검출 0건이어야 하고, 그 규칙이 원래 노리던 문맥은 살아 있어야 한다.
+for (const [orig, dst, damaged, kept] of [
+  ['형 변환', '형변환', '자료형 변환을 이해한다', '형 변환 과정을 거친다'],
+  ['어 주', '어주', '결과를 만들어 주는 함수', '내용을 적어 주면 좋겠다'],
+  ['어 보', '어보', '코드를 읽어 보는 습관', '한번 먹어 보는 것도 좋다'],
+  ['한값', '한 값', '구간의 상한값과 하한값', '계산한값을 저장한다'],
+]) {
+  const r = findRule(orig, dst);
+  ok(!!r, `신고 규칙 존재: "${orig}→${dst}"`);
+  if (r) {
+    ok(detectionsOf(damaged, r).length === 0, `부분 매칭 훼손 차단: ${damaged}`);
+    ok(detectionsOf(kept, r).length === 1, `정상 문맥 검출 유지: ${kept}`);
+  }
+}
+// 보조용언을 붙이자는 낱말 전용 규칙 — 일반 '어 주/어 보' 가드로는 못 막는다(원문이 다름)
+for (const [o, d] of [['이어 붙', '이어붙'], ['만들어 주', '만들어주'], ['읽어 보', '읽어보']]) {
+  ok(!findRule(o, d), `"${o}→${d}" 규칙 삭제됨`);
+}
+
 // 다글자 가드 토큰 (리눅스·윈도우 등 3글자)
 const multiGuard = allRules.find(r => (r.rejectBefore || []).concat(r.rejectAfter || []).some(g => g.length >= 2));
 ok(!!multiGuard, '다글자 가드 토큰 규칙 존재', multiGuard && JSON.stringify([multiGuard.original, multiGuard.rejectBefore, multiGuard.rejectAfter]));
