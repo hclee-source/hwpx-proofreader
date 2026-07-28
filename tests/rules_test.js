@@ -42,10 +42,10 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 10, '프리셋(카테고리) 10개 (큐레이션 8 + 사전 유래 2)', T.PRESETS.length);
-ok(totalRules === 14076, '규칙 총수 14,076개 (큐레이션 6,419 + 사전 유래 7,657)', totalRules);
+ok(totalRules === 14073, '규칙 총수 14,073개 (오검출 3건 삭제: 무명→익명·베틀→배틀·문안하→무난하)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 249, '문맥 가드 규칙 249개 (큐레이션 246 + 사전 3)', guarded);
+ok(guarded === 273, '문맥 가드 규칙 273개 (기존 249 + 코퍼스 게이트 검토로 신규 24)', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
