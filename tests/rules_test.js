@@ -206,5 +206,35 @@ ok(allRules.filter(r => r.rejectBefore || r.rejectAfter).every(r => !T.isLegacyB
 // 통합본 전 규칙이 legacy 판별되지 않음
 ok(allRules.every(r => !T.isLegacyBuiltinRule(r)), '통합본 전 규칙 legacy 오판별 0');
 
+// ── 7. gyojeong 규칙셋 대조 ──
+// 같은 규칙셋을 쓰는 gyojeong(크롬 확장)과 어긋나지 않았는지 본다. 수정은 어느 쪽에서든
+// 먼저 일어나고 손으로 옮기므로("(hwpx 동기)" 커밋) 빠뜨리기 쉽다 — 실제로 3건 격차를
+// 손으로 감사해서야 찾았고 그게 원고에 제어문자를 박아 넣던 오염이었다(2026-07-28).
+// gyojeong 저장소가 없는 환경에서는 건너뛴다.
+console.log('[7] gyojeong 규칙셋 대조');
+const GYOJEONG = process.env.GYOJEONG_DIR || 'C:/hcl/gyojeong';
+const gyPath = path.join(GYOJEONG, 'rules.json');
+if (!fs.existsSync(gyPath)) {
+  console.log(`  - 건너뜀 (gyojeong 없음: ${gyPath}; GYOJEONG_DIR로 지정 가능)`);
+} else {
+  const gy = JSON.parse(fs.readFileSync(gyPath, 'utf8'));
+  const key = (catId, r) => catId + '|' + r[0] + '|' + r[1];
+  const guard = (r) => JSON.stringify(r[2] || null);
+  const G = new Map();
+  for (const c of gy.categories) for (const r of c.rules) G.set(key(c.id, r), guard(r));
+  const H = new Map();
+  for (const c of T.CURATED_CATEGORIES) for (const r of c.rules) H.set(key(c.id, r), guard(r));
+
+  const onlyH = [...H.keys()].filter(k => !G.has(k));
+  const onlyG = [...G.keys()].filter(k => !H.has(k));
+  const guardDiff = [...H.keys()].filter(k => G.has(k) && G.get(k) !== H.get(k));
+  const brief = (list) => JSON.stringify(list.slice(0, 5)) + (list.length > 5 ? ` 외 ${list.length - 5}건` : '');
+
+  ok(H.size === G.size, `규칙 수 일치 (hwpx ${H.size} / gyojeong ${G.size})`);
+  ok(onlyH.length === 0, 'hwpx에만 있는 규칙 0건 — gyojeong으로 옮길 것', brief(onlyH));
+  ok(onlyG.length === 0, 'gyojeong에만 있는 규칙 0건 — hwpx로 옮길 것', brief(onlyG));
+  ok(guardDiff.length === 0, '가드(rejectBefore/After) 불일치 0건', brief(guardDiff));
+}
+
 console.log('\n결과: ' + pass + ' 통과 / ' + fail + ' 실패');
 process.exit(fail > 0 ? 1 : 0);
