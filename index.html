@@ -607,6 +607,26 @@
     margin-bottom: 10px;
   }
 
+  /* 분류별 일괄 선택 — 위 필터 바와 헷갈리지 않게 한 덩어리로 묶어 둔다 */
+  .bulk-cat-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line);
+  }
+  .bulk-cat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+  .filter-select-sm {
+    padding: 4px 8px;
+    font-size: 11px;
+    max-width: 190px;
+  }
+
   .result-count-badge {
     margin-left: auto;
     font-size: 12px;
@@ -1612,6 +1632,17 @@
         <div class="result-controls">
           <button class="btn btn-secondary btn-sm" id="selectAllBtn" title="아래에 표시된(필터 적용) 항목만 선택합니다">표시 항목 선택</button>
           <button class="btn btn-secondary btn-sm" id="deselectAllBtn" title="아래에 표시된(필터 적용) 항목만 해제합니다">표시 항목 해제</button>
+          <span class="bulk-cat-group">
+            <span class="bulk-cat-label">분류별</span>
+            <select id="bulkCatSelect" class="filter-select filter-select-sm"
+              title="필터를 바꾸지 않고 그 분류 전체를 한 번에 선택·해제합니다">
+              <option value="">— 분류 —</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" id="bulkCatSelectBtn"
+              title="화면 필터와 무관하게 그 분류의 검출을 모두 선택합니다">선택</button>
+            <button class="btn btn-secondary btn-sm" id="bulkCatDeselectBtn"
+              title="화면 필터와 무관하게 그 분류의 검출을 모두 해제합니다">해제</button>
+          </span>
           <span class="result-count-badge" id="displayedCount"></span>
           <span class="result-count-badge" id="selectedCount">0개 선택</span>
         </div>
@@ -4425,6 +4456,7 @@ function updateDisplayedCount() {
 }
 
 function renderIssuesList() {
+  syncBulkCategorySelect(); // 이른 반환 경로가 있어 맨 앞에서 한 번만 부른다
   if (state.issues.length === 0) {
     issuesList.innerHTML = `<div class="empty-state">
       <span class="empty-state-icon">🔍</span>
@@ -4492,6 +4524,7 @@ issuesList.addEventListener('change', e => {
 function updateSelectedCount() {
   const cnt = state.issues.filter(i => i.selected).length;
   document.getElementById('selectedCount').textContent = `${cnt}개 선택`;
+  syncBulkCategorySelect(); // 개별 체크박스는 목록을 다시 그리지 않으므로 여기서 (선택/전체)를 갱신
   // .hwp 읽기 전용은 교정 반영 불가 → 다운로드 버튼을 다시 켜지 않는다.
   setBtnEnabled('finalDownloadBtn', !!state.file && !state.readOnly);
 }
@@ -4618,6 +4651,69 @@ document.getElementById('deselectAllBtn').addEventListener('click', () => {
   state.displayedIssues.forEach(i => { i.selected = false; });
   renderIssuesList();
 });
+
+// ========== 분류별 일괄 선택 ==========
+//
+// 위의 [표시 항목 선택]은 화면 필터를 그대로 따른다. 그래서 한 분류를 통째로 다루려면
+// 필터를 바꿨다가 되돌려야 했고, 그 사이 다른 분류가 화면에서 사라졌다.
+// 여기는 필터와 무관하게 분류 하나만 집어 처리한다.
+//
+// 목록은 정적으로 적지 않고 실제 검출에서 만든다 — 위 필터 드롭다운은 옛 분류(spacing·
+// punct 등)까지 박아 둔 고정 목록이라 실제로 안 나오는 항목이 섞이고, 사전 유래
+// 분류(dict_saisiot·dict_nonstd)는 빠져 있다.
+function bulkCategoryRows() {
+  const map = new Map();
+  for (const issue of state.issues) {
+    const key = issue.category || 'custom';
+    let row = map.get(key);
+    if (!row) {
+      row = { key, name: issue.categoryName || key, total: 0, selected: 0 };
+      map.set(key, row);
+    }
+    row.total++;
+    if (issue.selected) row.selected++;
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function syncBulkCategorySelect() {
+  const sel = document.getElementById('bulkCatSelect');
+  if (!sel) return;
+  const keep = sel.value; // 고쳐 놓은 선택은 유지한다 — 재렌더마다 초기화되면 못 쓴다
+  const rows = bulkCategoryRows();
+  sel.innerHTML = '<option value="">— 분류 —</option>' + rows.map(r =>
+    `<option value="${escapeHtml(r.key)}">${escapeHtml(r.name)} (${r.selected}/${r.total})</option>`
+  ).join('');
+  if (keep && rows.some(r => r.key === keep)) sel.value = keep;
+  const disabled = rows.length === 0;
+  sel.disabled = disabled;
+  setBtnEnabled('bulkCatSelectBtn', !disabled);
+  setBtnEnabled('bulkCatDeselectBtn', !disabled);
+}
+
+function applyBulkCategory(select) {
+  const sel = document.getElementById('bulkCatSelect');
+  const key = sel ? sel.value : '';
+  if (!key) {
+    showToast('먼저 분류를 고르세요');
+    return;
+  }
+  const name = sel.options[sel.selectedIndex].textContent.replace(/\s*\(\d+\/\d+\)$/, '');
+  let changed = 0;
+  for (const issue of state.issues) {
+    if ((issue.category || 'custom') !== key) continue;
+    if (issue.selected === select) continue;
+    issue.selected = select;
+    changed++;
+  }
+  renderIssuesList();
+  showToast(changed === 0
+    ? `${name}: 이미 ${select ? '모두 선택' : '모두 해제'}된 상태입니다`
+    : `${name} ${changed}건 ${select ? '선택' : '해제'}`);
+}
+
+document.getElementById('bulkCatSelectBtn').addEventListener('click', () => applyBulkCategory(true));
+document.getElementById('bulkCatDeselectBtn').addEventListener('click', () => applyBulkCategory(false));
 
 // ========== 인라인 서식 옵션 ==========
 function toggleQuickFmt() {
