@@ -42,10 +42,10 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 10, '프리셋(카테고리) 10개 (큐레이션 8 + 사전 유래 2)', T.PRESETS.length);
-ok(totalRules === 14077, '규칙 총수 14,077개 (게이트 2~4차 검토: 삭제 10 + 조사판 추가 14)', totalRules);
+ok(totalRules === 13890, '규칙 총수 13,890개 (보조용언 붙임 132 + 띄우기·해독제 55 제외, 2026-08-11)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 332, '문맥 가드 규칙 332개 (1차 273 + 2차 8 + 3차 38 + 4차 13)', guarded);
+ok(guarded === 296, '문맥 가드 규칙 296개 (보조용언 붙임과 함께 가드 36개도 빠짐)', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
@@ -59,13 +59,8 @@ function detectionsOf(text, rule) {
   state.rules = [Object.assign({ id: 1 }, rule)];
   return T.detectIssuesInText(text).filter(i => i.ruleId === 1);
 }
-// rejectBefore: "해 주"→"해주"는 위해/통해/의해/대해 뒤에서 오발동 금지
-const haeJu = findRule('해 주', '해주');
-ok(!!haeJu && Array.isArray(haeJu.rejectBefore), '"해 주→해주" 규칙 존재 + rejectBefore 가드', JSON.stringify(haeJu && haeJu.rejectBefore));
-if (haeJu) {
-  ok(detectionsOf('이를 위해 주로 사용한다', haeJu).length === 0, 'rejectBefore: "위해 주로" 오발동 차단');
-  ok(detectionsOf('꼭 좀 해 주면 좋겠다', haeJu).length === 1, 'rejectBefore: 정상 문맥 "해 주면"은 검출 유지');
-}
+// rejectBefore 예시는 아래 '형 변환'이 맡는다.
+// 원래 여기서 "해 주"→"해주"의 가드를 확인했지만, 보조용언 붙임 규칙은 2026-08-11에 전부 뺐다.
 // rejectAfter: "그 중"→"그중"은 "그 중요한" 오발동 금지
 const geuJung = findRule('그 중', '그중');
 ok(!!geuJung && Array.isArray(geuJung.rejectAfter), '"그 중→그중" 규칙 존재 + rejectAfter 가드', JSON.stringify(geuJung && geuJung.rejectAfter));
@@ -77,8 +72,6 @@ if (geuJung) {
 // 검출 0건이어야 하고, 그 규칙이 원래 노리던 문맥은 살아 있어야 한다.
 for (const [orig, dst, damaged, kept] of [
   ['형 변환', '형변환', '자료형 변환을 이해한다', '형 변환 과정을 거친다'],
-  ['어 주', '어주', '결과를 만들어 주는 함수', '내용을 적어 주면 좋겠다'],
-  ['어 보', '어보', '코드를 읽어 보는 습관', '한번 먹어 보는 것도 좋다'],
   ['한값', '한 값', '구간의 상한값과 하한값', '계산한값을 저장한다'],
 ]) {
   const r = findRule(orig, dst);
@@ -88,10 +81,49 @@ for (const [orig, dst, damaged, kept] of [
     ok(detectionsOf(kept, r).length === 1, `정상 문맥 검출 유지: ${kept}`);
   }
 }
-// 보조용언을 붙이자는 낱말 전용 규칙 — 일반 '어 주/어 보' 가드로는 못 막는다(원문이 다름)
-for (const [o, d] of [['이어 붙', '이어붙'], ['만들어 주', '만들어주'], ['읽어 보', '읽어보']]) {
+// 보조용언 붙임 규칙은 전부 뺐다(2026-08-11). 한글 맞춤법 제47항은 보조용언을 띄어 씀을
+// 원칙으로 하고 붙임은 허용일 뿐이라, 원고에서 고쳐야 할 오류가 아니다.
+// 그동안 신고가 올 때마다 한 건씩 빼던 것을 계열째 정리했다.
+for (const [o, d] of [
+  ['이어 붙', '이어붙'], ['만들어 주', '만들어주'], ['읽어 보', '읽어보'],
+  ['해 주', '해주'], ['해 보', '해보'], ['해 준', '해준'], ['해 본', '해본'],
+  ['어 주', '어주'], ['어 보', '어보'], ['해 두', '해두'], ['해 놓', '해놓'],
+  ['생각해 보', '생각해보'], ['확인해 보면', '확인해보면'], ['제외해 버렸', '제외해버렸'],
+]) {
   ok(!findRule(o, d), `"${o}→${d}" 규칙 삭제됨`);
 }
+// 목록을 빠뜨려도 알 수 있게, 계열 자체가 남아 있지 않은지 통째로 본다.
+{
+  const AUX_CONNECT = '아어여해', AUX_STEMS = '보본볼봅봐봤주준줄줍줘두둔둡놓내낸낼냅냈버달';
+  // 합성동사(알아보다·뒤돌아보다)는 붙여 씀이 표준이라 남긴다.
+  const KEEP = new Set(['알아 보겠다', '알아 보자', '알아 보겠', '알아 보았', '알아 볼', '뒤돌아 볼']);
+  const left = allRules.filter(r => {
+    if (KEEP.has(r.original)) return false;
+    if (!r.original.includes(' ')) return false;
+    if (r.original.replace(/ /g, '') !== r.replacement.replace(/ /g, '')) return false;
+    if ((r.replacement.match(/ /g) || []).length >= (r.original.match(/ /g) || []).length) return false;
+    const m = /(.) (.)/.exec(r.original);
+    return !!m && AUX_CONNECT.includes(m[1]) && AUX_STEMS.includes(m[2]);
+  });
+  ok(left.length === 0, '보조용언 붙임 규칙 잔존 0', left.slice(0, 5).map(r => r.original + '→' + r.replacement).join(', '));
+
+  // 반대 방향(붙은 보조용언을 띄우라는 규칙)도 같이 뺐다 — 붙임이 허용이므로 앞뒤를 맞춘다.
+  const SPLIT_STEMS = AUX_STEMS + '있집졌진';
+  const split = allRules.filter(r => {
+    if (!r.replacement.includes(' ')) return false;
+    if (r.original.replace(/ /g, '') !== r.replacement.replace(/ /g, '')) return false;
+    if ((r.replacement.match(/ /g) || []).length <= (r.original.match(/ /g) || []).length) return false;
+    const m = /(.) (.)/.exec(r.replacement);
+    return !!m && AUX_CONNECT.includes(m[1]) && SPLIT_STEMS.includes(m[2]);
+  });
+  ok(split.length === 0, '보조용언 띄우기 규칙 잔존 0', split.slice(0, 5).map(r => r.original + '→' + r.replacement).join(', '));
+}
+// 붙임 규칙의 해독제(해주방→해 주방)도 원인이 사라져 함께 뺐다.
+for (const [o, d] of [['해주방', '해 주방'], ['해두께', '해 두께'], ['해주석', '해 주석'], ['압축해보', '압축해 보']]) {
+  ok(!findRule(o, d), `해독제 "${o}→${d}" 삭제됨`);
+}
+// 여전히 살아 있는 규칙의 해독제는 남아야 한다 — '해 질→해질'은 그대로다(해가 지다).
+ok(!!findRule('해질문', '해 질문'), '"해질문→해 질문"은 유지 (해 질→해질이 살아 있음)');
 
 // 사전 유래(dict_*)와 큐레이션이 서로 반대로 교정하면 무한 핑퐁이 된다 —
 // '최빈값' 사고(2026-07-13)가 그 유형이었다. 두 규칙셋을 합칠 때 반드시 0이어야 한다.
@@ -169,7 +201,8 @@ const sugg = issues.map(i => i.original + '→' + i.suggestion);
 ok(sugg.some(s => s === '갯수→개수'), '갯수→개수 검출', JSON.stringify(sugg));
 ok(sugg.some(s => s === '할때→할 때'), '할때→할 때 검출');
 ok(issues.filter(i => i.original === '그 중').length === 1, '"그 중" 1건만 검출 (그 중요한 제외)', issues.filter(i => i.original === '그 중').length);
-ok(!issues.some(i => i.original === '해 주' && text.slice(Math.max(0, i.position - 1), i.position) === '해'), '"위해 주로" 오발동 없음');
+ok(!issues.some(i => i.original === '해 주'), '"해 주" 계열은 아예 검출되지 않는다 (보조용언 붙임 제외)');
+ok(!issues.some(i => i.original === '해 보세요'), '"사용해 보세요"도 그대로 둔다');
 console.log('  (참고) 6,421개 규칙 × ' + text.length + '자 검출 소요: ' + elapsed + 'ms, 총 ' + issues.length + '건');
 // 사용자 정규식 규칙 병행 동작
 const regexIssues = issues.filter(i => i.ruleId === 6);
