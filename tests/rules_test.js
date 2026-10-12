@@ -42,10 +42,10 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 10, '프리셋(카테고리) 10개 (큐레이션 8 + 사전 유래 2)', T.PRESETS.length);
-ok(totalRules === 13890, '규칙 총수 13,890개 (보조용언 붙임 132 + 띄우기·해독제 55 제외, 2026-08-11)', totalRules);
+ok(totalRules === 13817, '규칙 총수 13,817개 (2026-10-12 규칙 자체 오류 검수: 95건 삭제·22건 교정판 추가)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
-ok(guarded === 296, '문맥 가드 규칙 296개 (보조용언 붙임과 함께 가드 36개도 빠짐)', guarded);
+ok(guarded === 306, '문맥 가드 규칙 306개 (2026-10-12 핑퐁·오탐 가드 추가)', guarded);
 ok(T.PRESETS.every(p => p.rules.every(r => r.type === 'literal' && r.original && typeof r.replacement === 'string')), '전 규칙 literal + 필수 필드');
 ok(T.PRESETS.every(p => p.rules.every(r => r.confidence > 0 && r.confidence <= 1)), '신뢰도 범위 (0,1]');
 const ctrlRe = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
@@ -124,6 +124,30 @@ for (const [o, d] of [['해주방', '해 주방'], ['해두께', '해 두께'], 
 }
 // 여전히 살아 있는 규칙의 해독제는 남아야 한다 — '해 질→해질'은 그대로다(해가 지다).
 ok(!!findRule('해질문', '해 질문'), '"해질문→해 질문"은 유지 (해 질→해질이 살아 있음)');
+// 규칙 자체 오류 검수(2026-10-12) — 정상 문장을 훼손하던 규칙이 가드로 막혔는지 실제 문장으로 본다.
+for (const [o, d, text] of [
+  ['안하는', '안 하는', '새로운 방식을 제안하는 논문'],
+  ['궂이', '굳이', '짓궂이 장난을 쳤다'],
+  ['됨으로', '되므로', '자동화됨으로써'],
+  ['다보면', '다 보면', '하늘을 쳐다보면'],
+  ['볼때', '볼 때', '볼때기가 붉다'],
+  ['될수', '될 수', '그렇게 될수록 좋다'],
+  ['그 중', '그중', '드래그 중에'],
+  ['화 하', '화하', '문화 하나를 소개한다'],
+]) {
+  const r = findRule(o, d);
+  ok(!!r, `가드 규칙 존재: "${o}→${d}"`);
+  if (r) ok(detectionsOf(text, r).length === 0, `훼손 차단: ${text}`);
+}
+// 표준을 거꾸로 고치거나 원고에 「을/를」을 박던 규칙은 삭제됐다.
+for (const [o, d] of [
+  ['한번', '한 번'], ['작가님', '작가 님'], ['마음먹고', '마음 먹고'], ['몇백', '몇 백'],
+  ['프런트', '프론트'], ['앤드', '엔드'], ['일부로', '일부러'], ['으신', '는'], ['경우에', '때에'],
+  ['다행이', '다행히'], ['도우미 클래스', '핼퍼 클래스'], ['맞춰 보', '맞춰보'], ['시켜 주는', '시켜주는'],
+]) {
+  ok(!findRule(o, d), `"${o}→${d}" 규칙 삭제됨`);
+}
+ok(allRules.every(r => !r.replacement.includes('을/를')), '교정어에 「을/를」 자리표시자 0건');
 
 // 사전 유래(dict_*)와 큐레이션이 서로 반대로 교정하면 무한 핑퐁이 된다 —
 // '최빈값' 사고(2026-07-13)가 그 유형이었다. 두 규칙셋을 합칠 때 반드시 0이어야 한다.
