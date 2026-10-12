@@ -171,6 +171,8 @@ const AUTO_DETECTORS = [
   { key: 'styleMix',    fn: detectStyleMix,        def: true  },
   { key: 'dupWord',     fn: detectDupWord,         def: true  },
   { key: 'durationGan', fn: detectDurationGan,     def: true  },
+  { key: 'invisible',   fn: detectInvisibleChars,  def: true  },
+  { key: 'aiStyle',     fn: detectAiStyle,         def: false },
 ];
 
 // paragraphs: 브리지 GET /text의 문단 텍스트 배열 (배열 인덱스 = para 좌표).
@@ -195,7 +197,7 @@ function detectAll(paragraphs, opts) {
   // 같은 구간에 겹친 매칭은 긴 것 하나만 — 웹 도구(index.html)와 동일 정책.
   // 빠지면 '하기 위해서는'과 '하기 위해서'가 같은 자리에 겹쳐 카드가 2장 나오고,
   // 짧은 쪽을 먼저 적용하면 '하려면는' 같은 잔여 조사 손상이 남는다 (실사용 신고).
-  raw = dedupeOverlappingIssues(raw);
+  raw = dedupeOverlappingIssues(raw); // 표시만 하는 항목(flagOnly)은 함수 안에서 겹침 정리를 건너뛴다
 
   const out = [];
   for (const it of raw) {
@@ -217,6 +219,7 @@ function detectAll(paragraphs, opts) {
       confidence: it.confidence, description: it.description,
       contextBefore: it.contextBefore, contextAfter: it.contextAfter,
       selected: it.selected !== false,
+      flagOnly: !!it.flagOnly,
     });
   }
   out.sort((a, b) => a.para - b.para || a.off - b.off);

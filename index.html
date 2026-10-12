@@ -1581,6 +1581,20 @@
             <div class="jamo-toggle-desc">문단 끝에 남은 불필요한 공백을 감지합니다 (신뢰도 낮음 · 기본 꺼짐)</div>
           </div>
         </label>
+        <label class="jamo-toggle-wrap" for="invisibleToggle">
+          <input type="checkbox" id="invisibleToggle" checked>
+          <div>
+            <div class="jamo-toggle-text">보이지 않는 문자 자동 검출</div>
+            <div class="jamo-toggle-desc">맥에서 온 자모 분해 한글·제로폭 문자·특수 공백 — 섞여 있으면 맞춤법 규칙이 그 낱말을 못 읽습니다</div>
+          </div>
+        </label>
+        <label class="jamo-toggle-wrap" for="aiStyleToggle">
+          <input type="checkbox" id="aiStyleToggle">
+          <div>
+            <div class="jamo-toggle-text">AI 문체 표시 (확인용)</div>
+            <div class="jamo-toggle-desc">'필요한 것은·시사하는 바가 크다' 같은 AI 상투구를 표시만 합니다 (고치지 않음 · 기본 꺼짐)</div>
+          </div>
+        </label>
         <div style="font-size:13px; color:var(--ink-muted); margin-bottom:10px;" id="ruleCountInfo"></div>
         <div class="actions">
           <button class="btn btn-primary" id="analyzeBtn" disabled data-disabled-hint="상단에서 HWPX 파일을 먼저 로드하세요" title="상단에서 HWPX 파일을 먼저 로드하세요">⚡ 오류 검출 시작</button>
@@ -1611,6 +1625,8 @@
             <option value="punct">문장부호</option>
             <option value="terminology">용어 일관성</option>
             <option value="custom">기타</option>
+            <option value="invisible">보이지 않는 문자</option>
+            <option value="aistyle">AI 문체 (확인용)</option>
           </select>
           <select id="filterRule" class="filter-select" title="특정 규칙의 검출만 모아 봅니다 — 오탐 규칙은 여기서 좁힌 뒤 '표시 항목 해제'로 한 번에 뺄 수 있습니다">
             <option value="all">전체 규칙</option>
@@ -2240,7 +2256,8 @@ const CURATED_CATEGORIES = [
 ["넓직한","널찍한"],["몇일","며칠"],["오랫 동안","오랫동안"],["오랜동안","오랫동안"],["오랜 동안","오랫동안"],["오랫만에","오랜만에"],["어의없","어이없"],["차돌배기","차돌박이"],["희안하","희한하"],["여지껏","여태껏"],["유도심문","유도신문"],["흐리멍텅","흐리멍덩"],["뒷태","뒤태"],["뒷풀이","뒤풀이"],["도데체","도대체"],["구지","굳이",{"rejectBefore":["달","떠"]}],["궂이","굳이",{"rejectBefore":["짓"]}],["예기해","얘기해"],[" 요세","요새",{"rejectBefore":["➊","➋","➌","➍","➎","➏","려"],"rejectAfter":["미"]}],["역활","역할"],["어떻해","어떡해"],["돼나요","되나요"],["서슴치","서슴지"],["어따대고","얻다 대고"],["인권비","인건비"],["단언컨데","단언컨대"],["그랬데","그랬대"],["되물림","대물림"],["빈털털이","빈털터리"],["뒤치닥거리","뒤치다꺼리"],["움추리다","움츠리다"],["궁시렁","구시렁"],["댓가","대가",{"rejectAfter":["지"]}],["홧병","화병"],["귀뜸","귀띔"],["넓직","널찍"],["개구장이","개구쟁이"],["구렛나루","구레나룻"],["눈쌀","눈살"],["낭떨어지","낭떠러지"],["발자욱","발자국"],["폭팔","폭발"],["가벼히","가벼이"],["깨끗히","깨끗이"],["닥달","닦달"],["하마트면","하마터면"],["요컨데","요컨대"],["짜집기","짜깁기"],
 ["찌게","찌개"],["떡볶기","떡볶이"],["떢볶이","떡볶이"],["떢복이","떡볶이"],["웬지","왠지"],["통채로","통째로"],["가온데","가운데"],["상태값","상탯값"],["에디선","에디션"],["플로토","플러터"],["타게팅","타깃팅"],["있다 싶이","있다시피"],["유일무의","유일무이"],["패캐징","패키징"],["Shett","Sheet"],["을떄","을 때"],["이로서","이로써"],["컴마","콤마"],["것이구요","것이고요"],["발생 시킵","발생시킵"],["발급 합","발급합"],["워샬","워셜"],["깊숙히","깊숙이"],["곰곰히","곰곰이"],["레파지토리","리포지터리"],["비지니스","비즈니스"],["콤포넌트","컴포넌트"],["런칭","론칭"],["탑다운","톱다운"],["시의절절","시의적절"],["푸쉬","푸시"],["윈도우즈","윈도우"],["메세지","메시지"],["골고로","골고루"],["케스팅","캐스팅"],["프로코톨","프로토콜"],["되있","되어 있"],["됬지만","됐지만"],["트랜젝션","트랜잭션"],["백엔트","백엔드"],["되야","되어야"],["요새푸스","요세푸스"],["컨넥션","커넥션"],["1이상","1 이상"],["구동시 ","구동 시 "],["트렌젝션","트랜잭션"],["트렌잭션","트랜잭션"],["유니언","유니온"],["클릭율","클릭률"],["일찌기","일찍이"],
 ["빌어오","빌려오"],["기대값","기댓값"],["분석가로써","분석가로서"],["껏다","껐다"],["테코레이터","데코레이터"],["네이게이션","내비게이션"],["데코레이터을","데코레이터를"],["워크플로우","워크플로"],["어플을","앱을"],["게약서","계약서"],["파라매트릭","파라메트릭"],["방법에 대해 알아","방법을 알아"],["바텀업","보텀업"],["튀르키에","튀르키예"],["메치메이킹","매치메이킹"],["오래동안","오랫동안"],["멋적은","멋쩍은"],["뉴욕욕","뉴욕"],["세레머니","세리머니"],["세레모니","세리머니"],["컨셉","콘셉트",{"rejectAfter":["트"]}],["벤처캐피탈","벤처캐피털"],["안개속","안갯속"],["공냉식","공랭식"],["시덥잖은","시답잖은"],["뉴욕타임즈","뉴욕타임스"],["뚜렸","뚜렷"],["스탭업","스텝업"],["리더역할","리더 역할"],["맷돼지","멧돼지"],["수익율","수익률"],["피쳐","피처"],["랜더링","렌더링"],["싶구요","싶고요"],["안팍","안팎"],["시덥","시답"],["섯불리","섣불리"],["퀵오프","킥오프"],["케논","캐논"],["써라운드","서라운드"],["지미 짚","지미집"],["지미짚","지미집"],["하룻동안","하루 동안"],["스크린숏","스크린샷"],["채GPT","챗GPT"],["인풋값","입력값"],["리파시토리","리포지터리"],["VS 코드","VSCode"],["채 GPT","챗GPT"],
-["코드 파일럿","코파일럿"],["Chet GPT","챗GPT"],["레포지토리","리포지터리"],["리포지토리","리포지터리"],["엣지","에지"],["임계값","임곗값"],["임계 값","임곗값"],["상태 값","상탯값"],["인수 값","인숫값"],["래포지토리","리포지터리"],["컬럼이름","컬럼명"],["펑션이","함수가"],["펑션은","함수는"],["펑션과","함수와"],["펑션으로","함수로"],["펑션을","함수를"],["펑션","함수"],["목표값","목푯값"],["하이퍼매개변수","하이퍼파라미터"],["하이퍼 매개변수","하이퍼파라미터"],["임계치","임곗값"],["텐서플로우","텐서플로"],["파워쉘","파워셸"],["배경색깔","배경색"],["배경색상","배경색"],["매테리얼 ","머티리얼"],["제너릭","제네릭"],["인스턴수","인스턴스"],["크래딧","크레딧"],["Linux","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["linux","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["LINUX","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["Windows","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["windows","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["WINDOWS","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["윈도","윈도우",{"rejectAfter":["우"]}],["컨텐트","콘텐츠"],["콘텐트","콘텐츠"],["데이타","데이터"],["레지스터리","레지스트리"],["플래폼","플랫폼"],["플렛폼","플랫폼"],["알고리듬","알고리즘"],["캐테고리","카테고리"],["다행이 ","다행히 "],["방법에 대해 공부했습","방법을 공부했습"],["드래그엔드롭","드래그 앤 드롭"],["드래그드롭","드래그 앤 드롭"]
+["코드 파일럿","코파일럿"],["Chet GPT","챗GPT"],["레포지토리","리포지터리"],["리포지토리","리포지터리"],["엣지","에지"],["임계값","임곗값"],["임계 값","임곗값"],["상태 값","상탯값"],["인수 값","인숫값"],["래포지토리","리포지터리"],["컬럼이름","컬럼명"],["펑션이","함수가"],["펑션은","함수는"],["펑션과","함수와"],["펑션으로","함수로"],["펑션을","함수를"],["펑션","함수"],["목표값","목푯값"],["하이퍼매개변수","하이퍼파라미터"],["하이퍼 매개변수","하이퍼파라미터"],["임계치","임곗값"],["텐서플로우","텐서플로"],["파워쉘","파워셸"],["배경색깔","배경색"],["배경색상","배경색"],["매테리얼 ","머티리얼"],["제너릭","제네릭"],["인스턴수","인스턴스"],["크래딧","크레딧"],["Linux","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["linux","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["LINUX","리눅스",{"rejectBefore":["리눅스"],"rejectAfter":["리눅스"]}],["Windows","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["windows","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["WINDOWS","윈도우",{"rejectBefore":["윈도우"],"rejectAfter":["윈도우"]}],["윈도","윈도우",{"rejectAfter":["우"]}],["컨텐트","콘텐츠"],["콘텐트","콘텐츠"],["데이타","데이터"],["레지스터리","레지스트리"],["플래폼","플랫폼"],["플렛폼","플랫폼"],["알고리듬","알고리즘"],["캐테고리","카테고리"],["다행이 ","다행히 "],["방법에 대해 공부했습","방법을 공부했습"],["드래그엔드롭","드래그 앤 드롭"],["드래그드롭","드래그 앤 드롭"],
+["되어진다","된다"],["되어지는","되는"],["되어진","된"],["되어질","될"],["되어지며","되며"],["되어지고","되고"],["되어지면","되면"],["되어지기","되기"],["되어지지","되지"],["되어지게","되게"],["되어지도록","되도록"],["되어지므로","되므로"],["되어지다","되다"],["되어집니다","됩니다"],["되어졌","되었"],["되어져","되어"],["되어짐","됨"],["보여진다","보인다"],["보여지는","보이는"],["보여진","보인"],["보여질","보일"],["보여지며","보이며"],["보여지고","보이고"],["보여지면","보이면"],["보여지기","보이기"],["보여지지","보이지"],["보여지게","보이게"],["보여지도록","보이도록"],["보여지므로","보이므로"],["보여지다","보이다"],["보여집니다","보입니다"],["보여졌","보였"],["보여져","보여"],["보여짐","보임"],["쓰여진다","쓰인다"],["쓰여지는","쓰이는"],["쓰여진","쓰인"],["쓰여질","쓰일"],["쓰여지며","쓰이며"],["쓰여지고","쓰이고"],["쓰여지면","쓰이면"],["쓰여지기","쓰이기"],["쓰여지지","쓰이지"],["쓰여지게","쓰이게"],["쓰여지도록","쓰이도록"],["쓰여지므로","쓰이므로"],["쓰여지다","쓰이다"],["쓰여집니다","쓰입니다"],["쓰여졌","쓰였"],["쓰여져","쓰여"],["쓰여짐","쓰임"],["잊혀진다","잊힌다"],["잊혀지는","잊히는"],["잊혀진","잊힌"],["잊혀질","잊힐"],["잊혀지며","잊히며"],["잊혀지고","잊히고"],["잊혀지면","잊히면"],["잊혀지기","잊히기"],["잊혀지지","잊히지"],["잊혀지게","잊히게"],["잊혀지도록","잊히도록"],["잊혀지므로","잊히므로"],["잊혀지다","잊히다"],["잊혀집니다","잊힙니다"],["잊혀졌","잊혔"],["잊혀져","잊혀"],["잊혀짐","잊힘"],["읽혀진다","읽힌다"],["읽혀지는","읽히는"],["읽혀진","읽힌"],["읽혀질","읽힐"],["읽혀지며","읽히며"],["읽혀지고","읽히고"],["읽혀지면","읽히면"],["읽혀지기","읽히기"],["읽혀지지","읽히지"],["읽혀지게","읽히게"],["읽혀지도록","읽히도록"],["읽혀지므로","읽히므로"],["읽혀지다","읽히다"],["읽혀집니다","읽힙니다"],["읽혀졌","읽혔"],["읽혀져","읽혀"],["읽혀짐","읽힘"],["놓여진다","놓인다"],["놓여지는","놓이는"],["놓여진","놓인"],["놓여질","놓일"],["놓여지며","놓이며"],["놓여지고","놓이고"],["놓여지면","놓이면"],["놓여지기","놓이기"],["놓여지지","놓이지"],["놓여지게","놓이게"],["놓여지도록","놓이도록"],["놓여지므로","놓이므로"],["놓여지다","놓이다"],["놓여집니다","놓입니다"],["놓여졌","놓였"],["놓여져","놓여"],["놓여짐","놓임"],["불려진다","불린다"],["불려지는","불리는"],["불려진","불린"],["불려질","불릴"],["불려지며","불리며"],["불려지고","불리고"],["불려지면","불리면"],["불려지기","불리기"],["불려지지","불리지"],["불려지게","불리게"],["불려지도록","불리도록"],["불려지므로","불리므로"],["불려지다","불리다"],["불려집니다","불립니다"],["불려졌","불렸"],["불려져","불려"],["불려짐","불림"],["나뉘어진다","나뉜다"],["나뉘어지는","나뉘는"],["나뉘어진","나뉜"],["나뉘어질","나뉠"],["나뉘어지며","나뉘며"],["나뉘어지고","나뉘고"],["나뉘어지면","나뉘면"],["나뉘어지기","나뉘기"],["나뉘어지지","나뉘지"],["나뉘어지게","나뉘게"],["나뉘어지도록","나뉘도록"],["나뉘어지므로","나뉘므로"],["나뉘어지다","나뉘다"],["나뉘어집니다","나뉩니다"],["나뉘어졌","나뉘었"],["나뉘어져","나뉘어"],["나뉘어짐","나뉨"],["짜여진다","짜인다"],["짜여지는","짜이는"],["짜여진","짜인"],["짜여질","짜일"],["짜여지며","짜이며"],["짜여지고","짜이고"],["짜여지면","짜이면"],["짜여지기","짜이기"],["짜여지지","짜이지"],["짜여지게","짜이게"],["짜여지도록","짜이도록"],["짜여지므로","짜이므로"],["짜여지다","짜이다"],["짜여집니다","짜입니다"],["짜여졌","짜였"],["짜여져","짜여"],["짜여짐","짜임"],["닫혀진다","닫힌다"],["닫혀지는","닫히는"],["닫혀진","닫힌"],["닫혀질","닫힐"],["닫혀지며","닫히며"],["닫혀지고","닫히고"],["닫혀지면","닫히면"],["닫혀지기","닫히기"],["닫혀지지","닫히지"],["닫혀지게","닫히게"],["닫혀지도록","닫히도록"],["닫혀지므로","닫히므로"],["닫혀지다","닫히다"],["닫혀집니다","닫힙니다"],["닫혀졌","닫혔"],["닫혀져","닫혀"],["닫혀짐","닫힘"],["열려진다","열린다"],["열려지는","열리는"],["열려진","열린"],["열려질","열릴"],["열려지며","열리며"],["열려지고","열리고"],["열려지면","열리면"],["열려지기","열리기"],["열려지지","열리지"],["열려지게","열리게"],["열려지도록","열리도록"],["열려지므로","열리므로"],["열려지다","열리다"],["열려집니다","열립니다"],["열려졌","열렸"],["열려져","열려"],["열려짐","열림"],["믿겨진다","믿긴다"],["믿겨지는","믿기는"],["믿겨진","믿긴"],["믿겨질","믿길"],["믿겨지며","믿기며"],["믿겨지고","믿기고"],["믿겨지면","믿기면"],["믿겨지기","믿기기"],["믿겨지지","믿기지"],["믿겨지게","믿기게"],["믿겨지도록","믿기도록"],["믿겨지므로","믿기므로"],["믿겨지다","믿기다"],["믿겨집니다","믿깁니다"],["믿겨졌","믿겼"],["믿겨져","믿겨"],["믿겨짐","믿김"],["되어 진다","된다"],["되어 집니다","됩니다"],["되어 졌","되었"],["보여 집니다","보입니다"],["보여 진다","보인다"]
 ] },
 { id: "plural", label: "존대와 복수", confidence: 0.9, rules: [
 ["드실 수","들 수"],["개념들","개념"],["정보들","정보",{"rejectAfter":["이"]}],["정보들을","정보를"],["정보들은","정보는"],["정보들과","정보와"],["정보을","정보를"],["정보은","정보는"],["정보과","정보와"],[" 로 ","로 ",{"rejectBefore":["➊","➋","➌","➍","➎","➏"]}],[" 으로 ","으로 ",{"rejectBefore":["➊","➋","➌","➍","➎","➏"]}],["등등","등",{"rejectAfter":["하","한","함","이","으"]}],["하자 마자","하자마자"],["볼때","볼 때",{"rejectAfter":["기"]}],["릴때","릴 때"],["될 것 같습니다","됩니다"],["더더","더",{"rejectBefore":["군"],"rejectAfter":["욱"]}],["보셨을","봤을"],["데이터들이","데이터가"],["데이터들과","데이터와"],["데이터들로","데이터로"],["데이터들은","데이터는"],["여러 변수들을","여러 변수를"],["여러 데이터들을","여러 데이터를"],["수많은 값들","수많은 값"],["여러 가지 방법들","여러 방법"],["여러 가지 방법","여러 방법"],["이런 경우","이 경우"],["국가들 사이","국가 사이"],["하시려면","하려면"],["내용들","내용"],["고려해야 할","고려할"],["안되","안 되",{"rejectBefore":["제","고","보"]}],["될수","될 수",{"rejectAfter":["록"]}],["없으시다","없다"],["으실","을"],["다고해","다고 해"],["많은 기능들","많은 기능"],["여러 도구들을","여러 도구를"],["지식들","지식"],["다른 도구들","다른 도구",{"rejectAfter":["이"]}],["다른 도구들을","다른 도구를"],["다른 도구들은","다른 도구는"],["다른 도구들과","다른 도구와"],["많은 사람들","많은 사람"],["대부분 사람들","대부분 사람"],["많은 것들","많은 것"],["많은 회사들은","많은 회사는"],["많은 회사들이","많은 회사가"],["많은 회사들과","많은 회사와"],["많은 회사들","많은 회사"],["많은 회사들을","많은 회사를"],["여러 회사들은","여러 회사는"],["여러 회사들이","여러 회사가"],["여러 회사들을","여러 회사를"],["여러 회사들과","여러 회사와"],
@@ -3673,6 +3690,90 @@ function detectDurationGan(text) {
   return issues;
 }
 
+// ========== 보이지 않는 문자 · AI 문체 (2026-10-12, gyojeong content/local-checks.js 동기) ==========
+// 자모 분해 한글(NFD)·제로폭 문자·특수 공백이 섞이면 규칙이 오류를 조용히 놓친다. AI 문체는 표시만 한다.
+// 기준: im-not-ai(https://github.com/epoko77-ai/im-not-ai, MIT) sanitize_text.py · ai-tell-taxonomy.md
+const INVISIBLE_DELETE_RE = /[­؜᠎​-‏⁠﻿‪-‮⁦-⁩]+/g;
+const INVISIBLE_SPACE_RE = /[   -   　]+/g;
+const INVISIBLE_NFD_RE = /[가-힣]?[ᄀ-ᇿꥠ-꥿ힰ-퟿]+/g;
+const INVISIBLE_LETTER_RE = /[0-9A-Za-z가-힣ᄀ-ᇿ]/;
+function invisibleHex(s) {
+  return [...s].map(ch => 'U+' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')).filter((v, i, a) => a.indexOf(v) === i).join(' ');
+}
+// 표시용: 비가시 문자를 ⟨U+200B⟩처럼 드러낸다
+function visibleInvisible(s) {
+  return String(s == null ? '' : s)
+    .replace(/[ ­؜ ᠎ -‏‪-  -⁩　﻿]/g,
+      ch => '⟨U+' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0') + '⟩')
+    .replace(/[ᄀ-ᇿꥠ-꥿ힰ-퟿]+/g, run => run.normalize('NFC') + '⟨자모 분해⟩');
+}
+function detectInvisibleChars(text) {
+  const issues = [];
+  const push = (pos, original, suggestion, description) => issues.push({
+    ruleId: -13, category: 'invisible', categoryName: '보이지 않는 문자', position: pos,
+    original, suggestion, confidence: 0.9, selected: true, description,
+    contextBefore: text.substring(Math.max(0, pos - 12), pos).replace(/\x01/g, ''),
+    contextAfter: text.substring(pos + original.length, pos + original.length + 12).replace(/\x01/g, ''),
+  });
+  let m;
+  INVISIBLE_DELETE_RE.lastIndex = 0;
+  while ((m = INVISIBLE_DELETE_RE.exec(text)) !== null) {
+    const run = m[0], start = m.index, end = start + run.length;
+    const prev = start > 0 ? text[start - 1] : '', next = end < text.length ? text[end] : '';
+    // 제로폭 결합자·비결합자는 이모지·다른 문자 체계에서 의미가 있으니 한글·영숫자 사이에 낀 것만
+    if (/^[‌‍]+$/.test(run) && !(INVISIBLE_LETTER_RE.test(prev) && INVISIBLE_LETTER_RE.test(next))) continue;
+    const desc = `보이지 않는 문자 ${invisibleHex(run)} — 지운다`;
+    // 독스·한글 패널과 같은 꼴로: 이웃 글자 하나를 함께 잡아 빈 치환을 피한다
+    if (prev && !'\n\r\x01'.includes(prev)) push(start - 1, prev + run, prev, desc);
+    else if (next && !'\n\r\x01'.includes(next)) push(start, run + next, next, desc);
+    else push(start, run, '', desc);
+  }
+  INVISIBLE_SPACE_RE.lastIndex = 0;
+  while ((m = INVISIBLE_SPACE_RE.exec(text)) !== null) {
+    push(m.index, m[0], ' '.repeat(m[0].length), `특수 공백 ${invisibleHex(m[0])} — 보통 공백으로`);
+  }
+  INVISIBLE_NFD_RE.lastIndex = 0;
+  while ((m = INVISIBLE_NFD_RE.exec(text)) !== null) {
+    const nfc = m[0].normalize('NFC');
+    if (nfc === m[0]) continue; // 옛한글처럼 합쳐지지 않는 자모
+    push(m.index, m[0], nfc, '자모 분해 한글(맥에서 온 글) — 완성형으로. 이대로면 맞춤법 규칙이 이 낱말을 못 읽는다');
+  }
+  return issues.sort((a, b) => a.position - b.position);
+}
+
+// AI 문체 — 고치지 않고 표시만(suggestion = original, selected:false, flagOnly). 기본 꺼짐.
+// 목록은 gyojeong content/local-checks.js의 AI_STYLE_PATTERNS와 같아야 한다(tests/rules_test.js가 대조).
+const AI_STYLE_PATTERNS = [
+  { id: 'D-8', label: '분열문 강조', re: '(?:필요한|중요한) 것은', note: "'필요한 것은 X이다' → 'X가 필요하다' (사람 글 0건)" },
+  { id: 'D-2', label: '의의 과장', re: '시사하는 바가 크|시사하는 바가 적지 않|주목할 만하|간과할 수 없|의미심장하|방점을 찍', note: '지우거나 구체적인 결론으로' },
+  { id: 'A-21', label: '범위 상승', re: '단순한 [^ ]+(?:을|를) 넘어', note: "'단순한 X를 넘어 Y' → 'X만이 아니라 Y' (사람 글 0건)" },
+  { id: 'A-23', label: '기반 마련 공식', re: '(?:토대|발판|초석)(?:을|를) (?:마련|놓)|지평을 (?:열|넓)', note: '은유를 걷고 실제로 가능해지는 것을 쓴다' },
+  { id: 'D-12', label: '빈 반론 문패', re: '과제도 남아 있|한계도 분명하|아쉬운 점도 있', note: '문패 문장을 지우고 실제 과제를 바로 쓴다' },
+  { id: 'D-14', label: '생성형 은유', re: '잠식|청사진|적신호|경고등|신호탄|움켜쥐|뿌리내리|짓누르', note: '사람 글 532편에서 0건인 은유 — 평서로 풀어 쓴다' },
+  { id: 'D-6', label: '결말 공식', re: '(?:할|해야 할|나아갈) (?:때|시점|순간)입니다', note: '구체적인 동사로 단언, 문서당 한 번 이하' },
+  { id: 'D-1', label: '결산 상투구', re: '결론적으로|요약하자면|정리하자면|에 다름 아니', note: '세 번 넘으면 한두 번만 남긴다' },
+  { id: 'D-10', label: '도치 결산', re: '(?:하는|된|한) 이유다[.]', note: "'~하는 이유다' → '그래서 ~다'" }
+];
+function detectAiStyle(text) {
+  const issues = [];
+  for (const p of AI_STYLE_PATTERNS) {
+    const re = new RegExp(p.re, 'g');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      const pos = m.index;
+      issues.push({
+        ruleId: -14, category: 'aistyle', categoryName: 'AI 문체 (확인용)', position: pos,
+        original: m[0], suggestion: m[0], confidence: 0.5, selected: false, flagOnly: true,
+        contextBefore: text.substring(Math.max(0, pos - 12), pos).replace(/\x01/g, ''),
+        contextAfter: text.substring(pos + m[0].length, pos + m[0].length + 12).replace(/\x01/g, ''),
+        description: `[${p.id}] ${p.label} — ${p.note}`,
+      });
+    }
+  }
+  return issues.sort((a, b) => a.position - b.position);
+}
+
 // ========== 오류 검출 ==========
 const HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph";
 const CAT_NAMES = {
@@ -3681,6 +3782,8 @@ const CAT_NAMES = {
   space1: '공백1 (조사 앞)', space2: '공백2 (붙여쓰기)', space3: '공백3 (값 붙이기)', final: '최종 점검',
   // 구 분류 (사용자 규칙 하위 호환)
   spacing: '띄어쓰기', punct: '문장부호', terminology: '용어 일관성', custom: '기타',
+  // 로컬 검사 (2026-10-12)
+  invisible: '보이지 않는 문자', aistyle: 'AI 문체 (확인용)',
 };
 
 // 교정 제안이 조사 앞에 잘못된 공백을 만드는지 확인
@@ -3938,7 +4041,10 @@ function eqFmtNum(v) {
 // 범위가 겹치는 검출 이슈 제거 — 같은 구간에 두 규칙이 매칭되면(예: '에 있어서는'과 '에 있어서')
 // 순차 적용 시 무관한 글자가 삭제되므로, 긴 매칭(같으면 신뢰도 높은 쪽)만 남긴다
 function dedupeOverlappingIssues(issues) {
-  const sorted = issues.slice().sort((a, b) =>
+  // 표시만 하는 항목(AI 문체, flagOnly)은 겹침 정리에서 뺀다 — 길다는 이유로 실제 교정을 밀어내면 안 되고,
+  // 적용해도 글자가 바뀌지 않으니 겹쳐 있어도 손상이 없다(2026-10-12)
+  const flags = issues.filter(iss => iss.flagOnly);
+  const sorted = issues.filter(iss => !iss.flagOnly).sort((a, b) =>
     a.position - b.position
     || b.original.length - a.original.length
     || (b.confidence || 0) - (a.confidence || 0));
@@ -3949,7 +4055,7 @@ function dedupeOverlappingIssues(issues) {
     kept.push(iss);
     lastEnd = iss.position + iss.original.length;
   }
-  return kept;
+  return flags.length ? kept.concat(flags).sort((a, b) => a.position - b.position) : kept;
 }
 
 function applyCorrection(analysis, globalPos, origLen, replText, expectedText) {
@@ -4350,6 +4456,12 @@ analyzeBtn.addEventListener('click', async () => {
     if (document.getElementById('trailingSpaceToggle').checked) {
       sectionIssues.push(...detectTrailingSpace(parsed));
     }
+    if (document.getElementById('invisibleToggle').checked) {
+      sectionIssues.push(...detectInvisibleChars(parsed.originalText));
+    }
+    if (document.getElementById('aiStyleToggle').checked) {
+      sectionIssues.push(...detectAiStyle(parsed.originalText));
+    }
     // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거
     let safeIssues = sectionIssues.filter(iss => {
       const span = parsed.originalText.slice(iss.position, iss.position + iss.original.length);
@@ -4423,7 +4535,7 @@ function renderResults() {
 }
 
 // 규칙 필터 라벨 — 자동 검출 규칙은 고정 이름, 사용자 규칙은 '원문 → 수정' 요약
-const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)', '-11': '문체 혼용 (자동)', '-12': '중복 어절 (자동)', '-99': 'AI 심층 검수' };
+const AUTO_RULE_NAMES = { '-1': '자모 분리 (자동)', '-2': '조사 붙여쓰기 (자동)', '-4': '콜론 앞뒤 공백 (자동)', '-7': '사이시옷 (자동)', '-8': '꼬리 공백 (자동)', '-9': "기간 '간' 붙여쓰기 (자동)", '-10': '템플릿 잔여물 (자동)', '-11': '문체 혼용 (자동)', '-12': '중복 어절 (자동)', '-13': '보이지 않는 문자 (자동)', '-14': 'AI 문체 표시 (확인용)', '-99': 'AI 심층 검수' };
 function hwpxRuleLabel(ruleId) {
   const auto = AUTO_RULE_NAMES[String(ruleId)];
   if (auto) return auto;
@@ -4503,7 +4615,8 @@ function renderIssuesList() {
       <input type="checkbox" class="issue-checkbox" data-id="${issue.globalId}" ${issue.selected ? 'checked' : ''}>
       <span class="issue-cat-badge">${escapeHtml(issue.categoryName)}</span>
       <div class="issue-context">
-        <span style="color:var(--ink-faint);">…${escapeHtml(issue.contextBefore)}</span><span class="issue-orig">${escapeHtml(issue.original)}</span><span class="issue-arrow">→</span><span class="issue-fix">${escapeHtml(issue.suggestion)}</span><span style="color:var(--ink-faint);">${escapeHtml(issue.contextAfter)}…</span>
+        <span style="color:var(--ink-faint);">…${escapeHtml(issue.contextBefore)}</span><span class="issue-orig">${escapeHtml(issue.category === 'invisible' ? visibleInvisible(issue.original) : issue.original)}</span><span class="issue-arrow">→</span><span class="issue-fix">${issue.flagOnly ? '(확인만 · 고치지 않음)' : escapeHtml(issue.category === 'invisible' ? visibleInvisible(issue.suggestion) : issue.suggestion)}</span><span style="color:var(--ink-faint);">${escapeHtml(issue.contextAfter)}…</span>
+        ${(issue.category === 'invisible' || issue.flagOnly) && issue.description ? `<div style="font-size:11px;color:var(--ink-muted);">${escapeHtml(issue.description)}</div>` : ''}
       </div>
       ${secLabel}
       <span class="issue-confidence">${Math.round(issue.confidence * 100)}%</span>
@@ -5303,6 +5416,12 @@ document.getElementById('undoBtn').addEventListener('click', () => {
       }
       if (document.getElementById('trailingSpaceToggle').checked) {
         sIssues.push(...detectTrailingSpace(a));
+      }
+      if (document.getElementById('invisibleToggle').checked) {
+        sIssues.push(...detectInvisibleChars(a.originalText));
+      }
+      if (document.getElementById('aiStyleToggle').checked) {
+        sIssues.push(...detectAiStyle(a.originalText));
       }
       // \x01(문단 구분자)에 걸친 이슈는 XML을 오염시키므로 제거 (분석 버튼과 동일 기준)
       sIssues = sIssues.filter(iss =>

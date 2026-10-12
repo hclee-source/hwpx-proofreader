@@ -42,7 +42,7 @@ function ok(cond, name, detail) {
 console.log('[1] 내장 규칙 수·구조');
 const totalRules = T.PRESETS.reduce((n, p) => n + p.rules.length, 0);
 ok(T.PRESETS.length === 10, '프리셋(카테고리) 10개 (큐레이션 8 + 사전 유래 2)', T.PRESETS.length);
-ok(totalRules === 13817, '규칙 총수 13,817개 (2026-10-12 규칙 자체 오류 검수: 95건 삭제·22건 교정판 추가)', totalRules);
+ok(totalRules === 14026, '규칙 총수 14,026개 (2026-10-12 오류 검수 13,817 + 이중 피동 209)', totalRules);
 ok(T.CURATED_SIGS.size === totalRules, '시그니처 수 = 규칙 수 (내장 중복 0)', T.CURATED_SIGS.size);
 const guarded = T.PRESETS.reduce((n, p) => n + p.rules.filter(r => r.rejectBefore || r.rejectAfter).length, 0);
 ok(guarded === 306, '문맥 가드 규칙 306개 (2026-10-12 핑퐁·오탐 가드 추가)', guarded);
@@ -291,6 +291,35 @@ if (!fs.existsSync(gyPath)) {
   ok(onlyH.length === 0, 'hwpx에만 있는 규칙 0건 — gyojeong으로 옮길 것', brief(onlyH));
   ok(onlyG.length === 0, 'gyojeong에만 있는 규칙 0건 — hwpx로 옮길 것', brief(onlyG));
   ok(guardDiff.length === 0, '가드(rejectBefore/After) 불일치 0건', brief(guardDiff));
+}
+
+// ── 8. 보이지 않는 문자·AI 문체 검출기 (2026-10-12, im-not-ai 참고) ──
+console.log('[8] 보이지 않는 문자 · AI 문체');
+{
+  const block = slice('// ========== 보이지 않는 문자 · AI 문체', '// ========== 오류 검출');
+  const X = new Function(block + '\nreturn { detectInvisibleChars, detectAiStyle, AI_STYLE_PATTERNS, visibleInvisible };')();
+  const nfd = '갯수를 센다'.normalize('NFD');
+  const inv = X.detectInvisibleChars(nfd + '\x01갯\u200B수\x01할\u00A0때');
+  ok(inv.some(i => i.suggestion === '갯수를'), '자모 분해 한글 → 완성형');
+  ok(inv.some(i => i.original === '갯\u200B' && i.suggestion === '갯'), '제로폭 공백은 이웃 글자와 함께 (빈 치환 없음)');
+  ok(inv.some(i => i.original === '\u00A0' && i.suggestion === ' '), 'NBSP → 보통 공백');
+  ok(inv.every(i => !i.original.includes('\x01')), '문단 구분자(\\x01)를 넘지 않는다');
+  const ai = X.detectAiStyle('필요한 것은 방향이다. 다음과 같은 특징이 있다.');
+  ok(ai.length === 1 && ai[0].flagOnly && ai[0].selected === false && ai[0].suggestion === ai[0].original, 'AI 문체는 확인만 (교정어 = 원문)');
+  ok(X.visibleInvisible('a\u200Bb') === 'a⟨U+200B⟩b', '비가시 문자 표시');
+  // 표시만 하는 항목은 겹침 정리에서 빠져 실제 교정을 밀어내지 않는다
+  const dd = new Function(slice('function dedupeOverlappingIssues', 'function applyCorrection') + '\nreturn dedupeOverlappingIssues;')();
+  const kept = dd([{ position: 0, original: '필요한 것은', flagOnly: true }, { position: 4, original: '것은', confidence: 1 }]);
+  ok(kept.length === 2, '겹침 정리: flagOnly는 따로 남고 실제 교정도 유지');
+  const lc = path.join(process.env.GYOJEONG_DIR || 'C:/hcl/gyojeong', 'content', 'local-checks.js');
+  if (fs.existsSync(lc)) {
+    const g = {};
+    new Function('globalThis', fs.readFileSync(lc, 'utf8'))(g);
+    ok(JSON.stringify(g.ToytypeLocalChecks.AI_STYLE_PATTERNS) === JSON.stringify(X.AI_STYLE_PATTERNS),
+      'AI 문체 패턴이 gyojeong content/local-checks.js와 같다');
+  } else {
+    console.log('  - 건너뜀 (gyojeong local-checks.js 없음)');
+  }
 }
 
 console.log('\n결과: ' + pass + ' 통과 / ' + fail + ' 실패');
